@@ -103,7 +103,11 @@ static void printUsage() {
 		<< "get621 - 0.1 (by nasso <https://github.com/nasso>)" << std::endl << std::endl
 		<< "Usage: get621 TAGS..." << std::endl
 		<< "   or: get621 -pool [POOL_ID]" << std::endl
+#ifdef NSFW
 		<< "Download files from <https://e621.net/>." << std::endl;
+#else
+		<< "Download files from <https://e926.net/>." << std::endl;
+#endif
 }
 
 static int searchAndSave(int argc, char** argv) {
@@ -122,10 +126,15 @@ static int searchAndSave(int argc, char** argv) {
 	
 	std::string searchQuery = searchQueryBuilder.str();
 	
-	std::cout << "E621: " << searchQuery << std::endl;
-	
 	std::stringstream urlBuilder;
+	
+#ifdef NSFW
+	std::cout << "E621: " << searchQuery << std::endl;
 	urlBuilder << "https://e621.net/post/index.json?limit=1&tags=" << url_encode(searchQuery);
+#else
+	std::cout << "E926: " << searchQuery << std::endl;
+	urlBuilder << "https://e926.net/post/index.json?limit=1&tags=" << url_encode(searchQuery);
+#endif
 	
 	if(setup_curl() != 0) return 1;
 	auto data = getjson_curl(urlBuilder.str());
@@ -202,7 +211,12 @@ static bool isValidID(char* str) {
 
 static int savePoolPage(char* poolID, int page, int* counter, int* postCount) {
 	std::stringstream urlBuilder;
+	
+#ifdef NSFW
 	urlBuilder << "https://e621.net/pool/show.json?id=" << poolID << "&page=" << page;
+#else
+	urlBuilder << "https://e926.net/pool/show.json?id=" << poolID << "&page=" << page;
+#endif
 	
 	auto data = getjson_curl(urlBuilder.str());
 	
