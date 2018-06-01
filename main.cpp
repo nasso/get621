@@ -98,11 +98,7 @@ static int download_curl(std::string url, std::string dest, bool printProgress) 
 	return 0;
 }
 
-static void printBanner() {
-}
-
 static void printUsage() {
-	printBanner();
 	std::cout
 		<< "get621 - 0.1 (by nasso <https://github.com/nasso>)" << std::endl << std::endl
 		<< "Usage: get621 TAGS..." << std::endl
