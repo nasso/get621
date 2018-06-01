@@ -39,9 +39,10 @@ static void printUsage() {
 		
 		//    -x, --longer-x               short description                                | 80 characters
 		//                                   second line if needed                          | limit
-		<< "  -i, --info                   print info about the first post found" << std::endl
-		<< "  -p, --parent                 display info about the parent of the post found" << std::endl
-		<< "  -v, --version                output version information and exit" << std::endl
+		<< "  -c, --children               print the IDs of the children of the post found" << std::endl
+		<< "  -i, --info                   print info about the post found" << std::endl
+		<< "  -p, --parent                 print info about the parent of the post found" << std::endl
+		<< "  -v, --version                print version information and exit" << std::endl
 		;
 }
 
@@ -87,6 +88,27 @@ static int showParent(int tagc, char** tagv) {
 	} else {
 		std::cout << "Parent of #" << post["id"] << ":" << std::endl;
 		printPostInfo(getPostByID(parent.get<int>()));
+	}
+	
+	cleanup_curl();
+	
+	return 0;
+}
+
+static int showChildren(int tagc, char** tagv) {
+	if(setup_curl() != 0) return 1;
+	
+	auto post = doSearch(tagc, tagv);
+	if(post == NULL) return 1;
+	
+	do_sleep(500);
+	
+	auto children = post["children"].get<std::string>();
+	
+	if(children.empty()) {
+		std::cout << "#" << post["id"] << " doesn't have any child." << std::endl;
+	} else {
+		std::cout << "Child(ren) of #" << post["id"] << ": " << children << std::endl;
 	}
 	
 	cleanup_curl();
@@ -206,6 +228,7 @@ int main(int argc, char** argv) {
 	else if(strcmp(argv[1], "--version") == 0 || strcmp(argv[1], "-v") == 0) printVersion();
 	else if(strcmp(argv[1], "--info") == 0 || strcmp(argv[1], "-i") == 0) return showSearch(argc - 2, argv + 2);
 	else if(strcmp(argv[1], "--parent") == 0 || strcmp(argv[1], "-P") == 0) return showParent(argc - 2, argv + 2);
+	else if(strcmp(argv[1], "--children") == 0 || strcmp(argv[1], "-c") == 0) return showChildren(argc - 2, argv + 2);
 	else if(strcmp(argv[1], "--pool") == 0 || strcmp(argv[1], "-p") == 0) {
 		if(argc < 3 || !isValidID(argv[2])) {
 			std::cout << "Please specify a valid pool ID." << std::endl;
