@@ -98,9 +98,12 @@ static int download_curl(std::string url, std::string dest, bool printProgress) 
 	return 0;
 }
 
+static void printVersion() {
+	std::cout << "get621 - 0.1 (by nasso <https://github.com/nasso>)" << std::endl;
+}
+
 static void printUsage() {
 	std::cout
-		<< "get621 - 0.1 (by nasso <https://github.com/nasso>)" << std::endl << std::endl
 		<< "Usage: get621 [OPTION] TAGS..." << std::endl
 		<< "   or: get621 -pool [POOL_ID]" << std::endl
 #ifdef NSFW
@@ -113,7 +116,9 @@ static void printUsage() {
 		
 		//    -x, --longer-x               short description                                | 80 characters
 		//                                   second line if needed                          | limit
-		<< "  -i, --info                   print info about the first post found" << std::endl;
+		<< "  -i, --info                   print info about the first post found" << std::endl
+		<< "  -v, --version                output version information and exit" << std::endl
+		;
 }
 static nlohmann::basic_json<> doSearch(int tagc, char** tags) {
 	std::stringstream searchQueryBuilder;
@@ -311,7 +316,8 @@ int main(int argc, char** argv) {
 		printUsage();
 		return 0;
 	} else {
-		if(strcmp(argv[1], "--pool") == 0 || strcmp(argv[1], "-p") == 0) {
+		if(strcmp(argv[1], "--version") == 0 || strcmp(argv[1], "-v") == 0) printVersion();
+		else if(strcmp(argv[1], "--pool") == 0 || strcmp(argv[1], "-p") == 0) {
 			if(argc < 3 || !isValidID(argv[2])) {
 				std::cout << "Please specify a valid pool ID." << std::endl;
 				return 0;
