@@ -101,26 +101,31 @@ static int download_curl(std::string url, std::string dest, bool printProgress) 
 static void printUsage() {
 	std::cout
 		<< "get621 - 0.1 (by nasso <https://github.com/nasso>)" << std::endl << std::endl
-		<< "Usage: get621 TAGS..." << std::endl
+		<< "Usage: get621 [OPTION] TAGS..." << std::endl
 		<< "   or: get621 -pool [POOL_ID]" << std::endl
 #ifdef NSFW
-		<< "Download files from <https://e621.net/>." << std::endl;
+		<< "Download files from <https://e621.net/>." << std::endl
 #else
-		<< "Download files from <https://e926.net/>." << std::endl;
+		<< "Download files from <https://e926.net/>." << std::endl
 #endif
+		<< std::endl
+		<< "Options:" << std::endl
+		
+		//    -x, --longer-x               short description                                | 80 characters
+		//                                   second line if needed                          | limit
+		<< "  -i, --info                   print info about the first post found" << std::endl;
 }
-
-static int searchAndSave(int argc, char** argv) {
+static nlohmann::basic_json<> doSearch(int tagc, char** tags) {
 	std::stringstream searchQueryBuilder;
 	
 	bool ordered = false;
-	for(int i = 1; i < argc; i++) {
-		searchQueryBuilder << argv[i] << " ";
+	for(int i = 0; i < tagc; i++) {
+		searchQueryBuilder << tags[i] << " ";
 		
-		ordered |= strstr(argv[i], "order:") != NULL;
+		ordered |= strstr(tags[i], "order:") != NULL;
 	}
 	
-	if(!ordered && argc < 5) {
+	if(!ordered && tagc < 6) {
 		searchQueryBuilder << "order:random";
 	}
 	
@@ -136,10 +141,8 @@ static int searchAndSave(int argc, char** argv) {
 	urlBuilder << "https://e926.net/post/index.json?limit=1&tags=" << url_encode(searchQuery);
 #endif
 	
-	if(setup_curl() != 0) return 1;
 	auto data = getjson_curl(urlBuilder.str());
-	
-	if(data == NULL) return 1;
+	if(data == NULL) return NULL;
 	
 	/*
 	for(size_t i = 0; i < data.size(); i++) {
@@ -157,44 +160,64 @@ static int searchAndSave(int argc, char** argv) {
 	}
 	*/
 	
-	if(data.size() == 0) std::cout << "No post found." << std::endl;
-	else {
-		auto post = data[0];
-		
-		std::cout << "#" << post["id"] << "\tby ";
-
-		auto artists = post["artist"];
-		for(size_t j = 0; j < artists.size(); j++) {
-			if(j != 0) std::cout << (j == artists.size() - 1 ? " and " : ", ");
-			std::cout << artists[j].get<std::string>();
-		}
-		
-		std::string rating = post["rating"].get<std::string>();
-		
-		std::cout << std::endl << "Rating: ";
-		if(rating[0] == 's') std::cout << "Safe" << std::endl;
-		else if(rating[0] == 'q') std::cout << "Questionable" << std::endl;
-		else if(rating[0] == 'e') std::cout << "Explicit" << std::endl;
-		else std::cout << rating << std::endl;
-
-		auto type = post["file_ext"].get<std::string>();
-		std::cout
-			<< "Score: " << post["score"] << std::endl
-			<< "Favs:" << post["fav_count"] << std::endl
-			<< "Type: " << type << std::endl
-			<< "Tags: " << post["tags"].get<std::string>() << std::endl;
-		
-		std::string desc = post["description"].get<std::string>();
-		if(!desc.empty()) std::cout << "Description:" << desc << std::endl;
-
-		std::cout << std::endl << "Downloading to " << post["id"] << "." << type << "..." << std::endl;
-		
-		// Now save to <id>.<type>
-		std::stringstream destPathBuilder;
-		destPathBuilder << cwd << kPathSeparator << post["id"] << "." << type;
-		
-		download_curl(post["file_url"].get<std::string>(), destPathBuilder.str(), true);
+	if(data.size() == 0) {
+		std::cout << "No post found." << std::endl;
+		return NULL;
 	}
+	
+	auto post = data[0];
+	
+	std::cout << "#" << post["id"] << " by ";
+
+	auto artists = post["artist"];
+	for(size_t j = 0; j < artists.size(); j++) {
+		if(j != 0) std::cout << (j == artists.size() - 1 ? " and " : ", ");
+		std::cout << artists[j].get<std::string>();
+	}
+	
+	std::string rating = post["rating"].get<std::string>();
+	
+	std::cout << std::endl << "Rating: ";
+	if(rating[0] == 's') std::cout << "Safe" << std::endl;
+	else if(rating[0] == 'q') std::cout << "Questionable" << std::endl;
+	else if(rating[0] == 'e') std::cout << "Explicit" << std::endl;
+	else std::cout << rating << std::endl;
+
+	std::cout
+		<< "Score: " << post["score"] << std::endl
+		<< "Favs: " << post["fav_count"] << std::endl
+		<< "Type: " << post["file_ext"].get<std::string>() << std::endl
+		<< "Tags: " << post["tags"].get<std::string>() << std::endl;
+	
+	std::string desc = post["description"].get<std::string>();
+	if(!desc.empty()) std::cout << "Description:" << desc << std::endl;
+
+	return post;
+}
+
+static int showSearch(int tagc, char** tagv) {
+	if(setup_curl() != 0) return 1;
+	doSearch(tagc, tagv);
+	cleanup_curl();
+	
+	return 0;
+}
+
+static int searchAndSave(int tagc, char** tagv) {
+	if(setup_curl() != 0) return 1;
+
+	auto post = doSearch(tagc, tagv);
+	
+	if(post == NULL) return 0;
+	
+	auto type = post["file_ext"].get<std::string>();
+	std::cout << std::endl << "Downloading to " << post["id"] << "." << type << "..." << std::endl;
+	
+	// Now save to <id>.<type>
+	std::stringstream destPathBuilder;
+	destPathBuilder << cwd << kPathSeparator << post["id"] << "." << type;
+	
+	download_curl(post["file_url"].get<std::string>(), destPathBuilder.str(), true);
 	
 	cleanup_curl();
 	
@@ -288,14 +311,15 @@ int main(int argc, char** argv) {
 		printUsage();
 		return 0;
 	} else {
-		if(strcmp(argv[1], "-pool") == 0) {
+		if(strcmp(argv[1], "--pool") == 0 || strcmp(argv[1], "-p") == 0) {
 			if(argc < 3 || !isValidID(argv[2])) {
 				std::cout << "Please specify a valid pool ID." << std::endl;
 				return 0;
 			}
 			
 			return savePool(argv[2]);
-		} else return searchAndSave(argc, argv);
+		} else if(strcmp(argv[1], "--info") == 0 || strcmp(argv[1], "-i") == 0) return showSearch(argc - 2, argv + 2);
+		else return searchAndSave(argc - 2, argv + 2);
 	}
     
 	return 0;
