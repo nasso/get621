@@ -237,7 +237,7 @@ int main(int argc, char** argv) {
 		
 		return savePool(argv[2]);
 	}
-	else return searchAndSave(argc - 2, argv + 2);
+	else return searchAndSave(argc - 1, argv + 1);
     
 	return 0;
 }
