@@ -55,23 +55,16 @@ nlohmann::basic_json<> getjson_curl(std::string url) {
 	return nlohmann::json::parse(readBuffer);
 }
 
-int download_curl(std::string url, std::string dest, bool printProgress) {
+int download_curl(std::string url, FILE* dest, bool printProgress) {
 	CURLcode res;
-	
-	FILE* destFile = fopen(dest.c_str(), "wb");
-	if(!destFile) {
-		std::cerr << "Couldn't open the file." << std::endl;
-		return 1;
-	}
 	
 	curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
 	// curl_easy_setopt(curl, CURLOPT_HTTPHEADER, hlist);
 	curl_easy_setopt(curl, CURLOPT_NOPROGRESS, printProgress ? 0L : 1L);
 	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, fileWriteCallback);
-	curl_easy_setopt(curl, CURLOPT_WRITEDATA, destFile);
+	curl_easy_setopt(curl, CURLOPT_WRITEDATA, dest);
 	
 	res = curl_easy_perform(curl);
-	fclose(destFile);
 	
 	if(res != CURLE_OK) {
 		std::cerr << "Couldn't perform request: " << curl_easy_strerror(res) << std::endl;
@@ -102,7 +95,7 @@ nlohmann::basic_json<> getPostByID(int id) {
 	return getjson_curl(urlBuilder.str());
 }
 
-nlohmann::basic_json<> doSearch(int tagc, char** tags) {
+nlohmann::basic_json<> doSearch(int tagc, char** tags, bool disableStdout = false) {
 	std::stringstream searchQueryBuilder;
 	
 	bool ordered = false;
@@ -121,34 +114,18 @@ nlohmann::basic_json<> doSearch(int tagc, char** tags) {
 	std::stringstream urlBuilder;
 	
 #ifdef NSFW
-	std::cout << "E621: " << searchQuery << std::endl;
+	if(!disableStdout) std::cout << "E621: " << searchQuery << std::endl;
 	urlBuilder << "https://e621.net/post/index.json?limit=1&tags=" << url_encode(searchQuery);
 #else
-	std::cout << "E926: " << searchQuery << std::endl;
+	if(!disableStdout) std::cout << "E926: " << searchQuery << std::endl;
 	urlBuilder << "https://e926.net/post/index.json?limit=1&tags=" << url_encode(searchQuery);
 #endif
 	
 	auto data = getjson_curl(urlBuilder.str());
 	if(data == NULL) return NULL;
 	
-	/*
-	for(size_t i = 0; i < data.size(); i++) {
-		auto post = data[i];
-		std::cout << (i + 1) << ". #" << post["id"] <<
-			"\t(r:" << post["rating"].get<std::string>() << ",\ts:" << post["score"] << ",\tf:" << post["fav_count"] << ")\tby ";
-		
-		auto artists = post["artist"];
-		for(size_t j = 0; j < artists.size(); j++) {
-			if(j != 0) std::cout << (j == artists.size() - 1 ? " and " : ", ");
-			std::cout << artists[j].get<std::string>();
-		}
-		
-		std::cout << std::endl;
-	}
-	*/
-	
 	if(data.size() == 0) {
-		std::cout << "No post found." << std::endl;
+		if(!disableStdout) std::cout << "No post found." << std::endl;
 		return NULL;
 	}
 	

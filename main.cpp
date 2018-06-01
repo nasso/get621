@@ -39,9 +39,10 @@ static void printUsage() {
 		
 		//    -x, --longer-x               short description                                | 80 characters
 		//                                   second line if needed                          | limit
-		<< "  -c, --children               print the IDs of the children of the post found" << std::endl
-		<< "  -i, --info                   print info about the post found" << std::endl
-		<< "  -p, --parent                 print info about the parent of the post found" << std::endl
+		<< "  -c, --children               print the IDs of the children of the post" << std::endl
+		<< "  -i, --info                   print info about the post" << std::endl
+		<< "  -o, --output                 output the post to stdout" << std::endl
+		<< "  -p, --parent                 print info about the parent of the post" << std::endl
 		<< "  -v, --version                print version information and exit" << std::endl
 		;
 }
@@ -141,8 +142,29 @@ static int searchAndSave(int tagc, char** tagv) {
 	// Now save to <id>.<type>
 	std::stringstream destPathBuilder;
 	destPathBuilder << cwd << kPathSeparator << post["id"] << "." << type;
+
+	FILE* destFile = fopen(destPathBuilder.str().c_str(), "wb");
+	if(!destFile) {
+		std::cerr << "Couldn't open the file." << std::endl;
+		return 1;
+	}
 	
-	download_curl(post["file_url"].get<std::string>(), destPathBuilder.str(), true);
+	download_curl(post["file_url"].get<std::string>(), destFile, true);
+
+	fclose(destFile);
+	
+	cleanup_curl();
+	
+	return 0;
+}
+
+static int searchAndOutput(int tagc, char** tagv) {
+	if(setup_curl() != 0) return 1;
+
+	auto post = doSearch(tagc, tagv, true);
+	if(post == NULL) return 1;
+	
+	download_curl(post["file_url"].get<std::string>(), stdout, false);
 	
 	cleanup_curl();
 	
@@ -183,8 +205,16 @@ static int savePoolPage(char* poolID, int page, int* counter, int* postCount) {
 		// Save to i.<type>
 		std::stringstream destPathBuilder;
 		destPathBuilder << cwd << kPathSeparator << poolID << "-" << ((*counter)++) << "_" << post["id"] << "." << post["file_ext"].get<std::string>();
+
+		FILE* destFile = fopen(destPathBuilder.str().c_str(), "wb");
+		if(!destFile) {
+			std::cerr << "Couldn't open the file." << std::endl;
+			return 1;
+		}
 		
-		download_curl(post["file_url"].get<std::string>(), destPathBuilder.str(), false);
+		download_curl(post["file_url"].get<std::string>(), destFile, false);
+		
+		fclose(destFile);
 	}
 	
 	return posts.size();
@@ -229,6 +259,7 @@ int main(int argc, char** argv) {
 	else if(strcmp(argv[1], "--info") == 0 || strcmp(argv[1], "-i") == 0) return showSearch(argc - 2, argv + 2);
 	else if(strcmp(argv[1], "--parent") == 0 || strcmp(argv[1], "-P") == 0) return showParent(argc - 2, argv + 2);
 	else if(strcmp(argv[1], "--children") == 0 || strcmp(argv[1], "-c") == 0) return showChildren(argc - 2, argv + 2);
+	else if(strcmp(argv[1], "--output") == 0 || strcmp(argv[1], "-o") == 0) return searchAndOutput(argc - 2, argv + 2);
 	else if(strcmp(argv[1], "--pool") == 0 || strcmp(argv[1], "-p") == 0) {
 		if(argc < 3 || !isValidID(argv[2])) {
 			std::cout << "Please specify a valid pool ID." << std::endl;
