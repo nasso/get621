@@ -104,14 +104,16 @@ static void printVersion() {
 
 static void printUsage() {
 	std::cout
-		<< "Usage: get621 [OPTION] TAGS..." << std::endl
-		<< "   or: get621 -pool [POOL_ID]" << std::endl
-#ifdef NSFW
-		<< "Download files from <https://e621.net/>." << std::endl
-#else
-		<< "Download files from <https://e926.net/>." << std::endl
+		<< "Usage: get621 [OPTION] [TAGS]..." << std::endl
+		<< "         normal mode (see options below)" << std::endl
+		<< "   or: get621 --pool [POOL_ID]" << std::endl
+		<< "       get621 -p [POOL_ID]" << std::endl
+		<< "         to download all the posts in a pool" << std::endl
+		<< "E621 command line tool"
+#ifndef NSFW
+		<< " (SFW mode)"
 #endif
-		<< std::endl
+		<< std::endl << std::endl
 		<< "Options:" << std::endl
 		
 		//    -x, --longer-x               short description                                | 80 characters
@@ -195,7 +197,7 @@ static nlohmann::basic_json<> doSearch(int tagc, char** tags) {
 		<< "Tags: " << post["tags"].get<std::string>() << std::endl;
 	
 	std::string desc = post["description"].get<std::string>();
-	if(!desc.empty()) std::cout << "Description:" << desc << std::endl;
+	if(!desc.empty()) std::cout << "Description: " << desc << std::endl;
 
 	return post;
 }
@@ -317,6 +319,7 @@ int main(int argc, char** argv) {
 		return 0;
 	} else {
 		if(strcmp(argv[1], "--version") == 0 || strcmp(argv[1], "-v") == 0) printVersion();
+		else if(strcmp(argv[1], "--info") == 0 || strcmp(argv[1], "-i") == 0) return showSearch(argc - 2, argv + 2);
 		else if(strcmp(argv[1], "--pool") == 0 || strcmp(argv[1], "-p") == 0) {
 			if(argc < 3 || !isValidID(argv[2])) {
 				std::cout << "Please specify a valid pool ID." << std::endl;
@@ -324,7 +327,7 @@ int main(int argc, char** argv) {
 			}
 			
 			return savePool(argv[2]);
-		} else if(strcmp(argv[1], "--info") == 0 || strcmp(argv[1], "-i") == 0) return showSearch(argc - 2, argv + 2);
+		}
 		else return searchAndSave(argc - 2, argv + 2);
 	}
     
