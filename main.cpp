@@ -314,22 +314,18 @@ int main(int argc, char** argv) {
 	cwd = cwdBuf;
 	free(cwdBuf);
 	
-	if(argc == 1) {
-		printUsage();
-		return 0;
-	} else {
-		if(strcmp(argv[1], "--version") == 0 || strcmp(argv[1], "-v") == 0) printVersion();
-		else if(strcmp(argv[1], "--info") == 0 || strcmp(argv[1], "-i") == 0) return showSearch(argc - 2, argv + 2);
-		else if(strcmp(argv[1], "--pool") == 0 || strcmp(argv[1], "-p") == 0) {
-			if(argc < 3 || !isValidID(argv[2])) {
-				std::cout << "Please specify a valid pool ID." << std::endl;
-				return 0;
-			}
-			
-			return savePool(argv[2]);
+	if(argc == 1 || strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0) printUsage();
+	else if(strcmp(argv[1], "--version") == 0 || strcmp(argv[1], "-v") == 0) printVersion();
+	else if(strcmp(argv[1], "--info") == 0 || strcmp(argv[1], "-i") == 0) return showSearch(argc - 2, argv + 2);
+	else if(strcmp(argv[1], "--pool") == 0 || strcmp(argv[1], "-p") == 0) {
+		if(argc < 3 || !isValidID(argv[2])) {
+			std::cout << "Please specify a valid pool ID." << std::endl;
+			return 0;
 		}
-		else return searchAndSave(argc - 2, argv + 2);
+		
+		return savePool(argv[2]);
 	}
+	else return searchAndSave(argc - 2, argv + 2);
     
 	return 0;
 }
