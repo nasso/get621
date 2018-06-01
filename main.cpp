@@ -119,6 +119,7 @@ static void printUsage() {
 		//    -x, --longer-x               short description                                | 80 characters
 		//                                   second line if needed                          | limit
 		<< "  -i, --info                   print info about the first post found" << std::endl
+		<< "  -p, --parent                 display info about the parent of the post found" << std::endl
 		<< "  -v, --version                output version information and exit" << std::endl
 		;
 }
