@@ -122,6 +122,19 @@ static void printUsage() {
 		<< "  -v, --version                output version information and exit" << std::endl
 		;
 }
+
+static nlohmann::basic_json<> getPostByID(int id) {
+	std::stringstream urlBuilder;
+
+#ifdef NSFW
+	urlBuilder << "https://e621.net/post/show.json?id=" << id;
+#else
+	urlBuilder << "https://e621.net/post/show.json?id=" << id;
+#endif
+	
+	return getjson_curl(urlBuilder.str());
+}
+
 static nlohmann::basic_json<> doSearch(int tagc, char** tags) {
 	std::stringstream searchQueryBuilder;
 	
@@ -172,8 +185,10 @@ static nlohmann::basic_json<> doSearch(int tagc, char** tags) {
 		return NULL;
 	}
 	
-	auto post = data[0];
-	
+	return data[0];
+}
+
+static void printPostInfo(nlohmann::basic_json<> post) {
 	std::cout << "#" << post["id"] << " by ";
 
 	auto artists = post["artist"];
@@ -198,13 +213,37 @@ static nlohmann::basic_json<> doSearch(int tagc, char** tags) {
 	
 	std::string desc = post["description"].get<std::string>();
 	if(!desc.empty()) std::cout << "Description: " << desc << std::endl;
+}
 
-	return post;
+static int showParent(int tagc, char** tagv) {
+	if(setup_curl() != 0) return 1;
+	
+	auto post = doSearch(tagc, tagv);
+	if(post == NULL) return 1;
+	
+	do_sleep(500);
+	
+	auto parent = post["parent_id"];
+	
+	if(parent.is_null()) {
+		std::cout << "#" << post["id"] << " doesn't have a parent." << std::endl;
+	} else {
+		std::cout << "Parent of #" << post["id"] << ":" << std::endl;
+		printPostInfo(getPostByID(parent.get<int>()));
+	}
+	
+	cleanup_curl();
+	
+	return 0;
 }
 
 static int showSearch(int tagc, char** tagv) {
 	if(setup_curl() != 0) return 1;
-	doSearch(tagc, tagv);
+	
+	auto post = doSearch(tagc, tagv);
+	if(post == NULL) return 1;
+	printPostInfo(post);
+	
 	cleanup_curl();
 	
 	return 0;
@@ -214,8 +253,8 @@ static int searchAndSave(int tagc, char** tagv) {
 	if(setup_curl() != 0) return 1;
 
 	auto post = doSearch(tagc, tagv);
-	
-	if(post == NULL) return 0;
+	if(post == NULL) return 1;
+	printPostInfo(post);
 	
 	auto type = post["file_ext"].get<std::string>();
 	std::cout << std::endl << "Downloading to " << post["id"] << "." << type << "..." << std::endl;
@@ -317,6 +356,7 @@ int main(int argc, char** argv) {
 	if(argc == 1 || strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0) printUsage();
 	else if(strcmp(argv[1], "--version") == 0 || strcmp(argv[1], "-v") == 0) printVersion();
 	else if(strcmp(argv[1], "--info") == 0 || strcmp(argv[1], "-i") == 0) return showSearch(argc - 2, argv + 2);
+	else if(strcmp(argv[1], "--parent") == 0 || strcmp(argv[1], "-P") == 0) return showParent(argc - 2, argv + 2);
 	else if(strcmp(argv[1], "--pool") == 0 || strcmp(argv[1], "-p") == 0) {
 		if(argc < 3 || !isValidID(argv[2])) {
 			std::cout << "Please specify a valid pool ID." << std::endl;
