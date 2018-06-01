@@ -109,7 +109,7 @@ static void printUsage() {
 		<< "   or: get621 --pool [POOL_ID]" << std::endl
 		<< "       get621 -p [POOL_ID]" << std::endl
 		<< "         to download all the posts in a pool" << std::endl
-		<< "E621 command line tool"
+		<< "E621/926 command line tool"
 #ifndef NSFW
 		<< " (SFW mode)"
 #endif
