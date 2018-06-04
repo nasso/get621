@@ -89,7 +89,7 @@ nlohmann::basic_json<> getPostByID(int id) {
 #ifdef NSFW
 	urlBuilder << "https://e621.net/post/show.json?id=" << id;
 #else
-	urlBuilder << "https://e621.net/post/show.json?id=" << id;
+	urlBuilder << "https://e926.net/post/show.json?id=" << id;
 #endif
 	
 	return getjson_curl(urlBuilder.str());
