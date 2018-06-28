@@ -20,7 +20,7 @@
 static std::string cwd;
 
 static void printVersion() {
-	std::cout << "get621 - 0.1 (by nasso <https://github.com/nasso>)" << std::endl;
+	std::cout << "get621 - 0.1.1 (by nasso <https://github.com/nasso>)" << std::endl;
 }
 
 static void printUsage() {
@@ -240,9 +240,12 @@ static int savePool(char* poolID) {
 		
 		postsSaved = savePoolPage(poolID, page++, &counter, postsLeft < 0 ? &postsLeft : NULL);
 		if(postsSaved < 0) return 1;
+		else if(postsSaved == 0) break;
 		
 		postsLeft -= postsSaved;
 	} while(postsLeft > 0);
+	
+	std::cout << "Done." << std::endl;
 	
 	cleanup_curl();
 	
