@@ -227,12 +227,12 @@ int main(int argc, char** argv) {
 				
 				//      -x, --longer-x               short description                                | 80 characters
 				//                                     second line if needed                          | limit
-				<< "    -c, --children               Search for children in all the results"            << std::endl
+				<< "    -c, --children               Search for child posts"                            << std::endl
 				<< "    -h, --help                   Show this screen"                                  << std::endl
 				<< "    -j, --json                   Output JSON info about the posts on stdout"        << std::endl
 				<< "    -l, --limit                  Set the post count limit when searching"           << std::endl
 				<< "    -o, --output                 Download and output posts to stdout (unseparated)" << std::endl
-				<< "    -p, --parents                Search for parents in all the results"             << std::endl
+				<< "    -p, --parents                Search for parent posts"                           << std::endl
 				<< "    -P, --pool                   Search for posts in the given pool ID (ordered)"   << std::endl
 				<< "    -s, --save                   Download posts to ./<post_id>.<ext>"               << std::endl
 				<< "    -v, --verbose                Verbose output about the results"                  << std::endl
