@@ -69,7 +69,6 @@ static void parseArgs(int argc, char** argv, Options* opts) {
 	}
 	
 	// Checks
-	if(opts->outMode == OutMode::OUTPUT) opts->limit = 1; // --output only works with a single file 
 	if(opts->op == OpMode::POOL) {
 		opts->poolId = static_cast<int32_t>(std::stoi(argv[tagsStart], NULL, 10));
 	} else {
@@ -221,7 +220,7 @@ int main(int argc, char** argv) {
 				<< std::endl << std::endl << "  Usage: " << std::endl
 				<< "    get621 -h | --help" << std::endl
 				<< "    get621 -V | --version" << std::endl
-				<< "    get621 [-s] [-c | -p] [-v | -j] -P pool_id" << std::endl
+				<< "    get621 [-s] [-c | -p] [-v | -o | -j] -P pool_id" << std::endl
 				<< "    get621 [-s] [-c | -p] [-v | -o | -j] [-l limit] [--] [tag...]" << std::endl
 				<< std::endl
 				<< "  Options:" << std::endl
@@ -232,10 +231,10 @@ int main(int argc, char** argv) {
 				<< "    -h, --help                   Show this screen"                                  << std::endl
 				<< "    -j, --json                   Output JSON info about the posts on stdout"        << std::endl
 				<< "    -l, --limit                  Set the post count limit when searching"           << std::endl
-				<< "    -o, --output                 Download and output the first post to stdout"      << std::endl
+				<< "    -o, --output                 Download and output posts to stdout (unseparated)" << std::endl
 				<< "    -p, --parents                Search for parents in all the results"             << std::endl
 				<< "    -P, --pool                   Search for posts in the given pool ID (ordered)"   << std::endl
-				<< "    -s, --save                   Download the post to ./<post_id>.<ext>"            << std::endl
+				<< "    -s, --save                   Download posts to ./<post_id>.<ext>"               << std::endl
 				<< "    -v, --verbose                Verbose output about the results"                  << std::endl
 				<< "    -V, --version                Print version information and exit"                << std::endl
 				<< std::endl;
