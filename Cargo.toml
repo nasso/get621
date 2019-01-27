@@ -1,0 +1,8 @@
+[package]
+name = "get621"
+version = "0.1.0"
+authors = ["nasso <nassomails ~ at ~ gmail {dot} com>"]
+edition = "2018"
+
+[dependencies]
+clap = "2.32.0"
