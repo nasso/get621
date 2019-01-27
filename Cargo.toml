@@ -6,3 +6,6 @@ edition = "2018"
 
 [dependencies]
 clap = "2.32.0"
+chrono = "0.4.6"
+reqwest = "0.9.9"
+urlencoding = "1.0.0"
