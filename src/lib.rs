@@ -23,6 +23,7 @@ use chrono::{
 use serde_json;
 
 static LIST_HARD_LIMIT: u64 = 320;
+const REQ_COOLDOWN_DURATION: ::std::time::Duration = ::std::time::Duration::from_secs(1);
 
 pub type JsonValue = serde_json::Value;
 pub type Result<T> = ::std::result::Result<T, Error>;
@@ -101,7 +102,39 @@ pub struct Post {
 
 impl fmt::Display for Post {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-		write!(f, "Post #{}: {}", self.id, self.raw)
+		write!(f, "#{} by ", self.id)?;
+		
+		let artist_count = self.artist.len();
+		for i in 0..artist_count {
+			match artist_count - i {
+				1 => writeln!(f, "{}", self.artist[i])?,
+				2 => write!(f, "{} and ", self.artist[i])?,
+				_ => write!(f, "{}, ", self.artist[i])?,
+			}
+		}
+		
+		writeln!(f, "Rating: {}", match self.rating {
+			PostRating::Explicit => "Explicit",
+			PostRating::Questionnable => "Questionnable",
+			PostRating::Safe => "Safe",
+		})?;
+		
+		writeln!(f, "Score: {}", self.score)?;
+		writeln!(f, "Favs: {}", self.fav_count)?;
+		if let Some(ref t) = self.file_ext {
+			writeln!(f, "Type: {}", match t {
+				PostFormat::JPG => "jpg",
+				PostFormat::PNG => "png",
+				PostFormat::GIF => "gif",
+				PostFormat::SWF => "swf",
+				PostFormat::WEBM => "webm",
+			})?;
+		}
+		writeln!(f, "Created at: {}", self.created_at)?;
+		writeln!(f, "Tags: {}", self.tags.join(", "))?;
+		write!(f, "Description: {}", self.description)?;
+		
+		Ok(())
 	}
 }
 
@@ -215,6 +248,9 @@ impl Get621 {
 	}
 	
 	fn get_json<U: IntoUrl>(&self, url: U) -> Result<JsonValue> {
+		// Wait first to make sure we're not exceeding the limit
+		::std::thread::sleep(REQ_COOLDOWN_DURATION);
+		
 		match self.client.get(url).send() {
 			Ok(mut res) => {
 				if res.status().is_success() {

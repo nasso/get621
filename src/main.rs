@@ -16,6 +16,8 @@ fn valid_parse<T: FromStr>(v: &str, emsg: &str) -> Result<(), String> {
 fn run_app(matches: ArgMatches) -> Result<(), String> {
 	// Get args
 	let limit = matches.value_of("limit").unwrap().parse().unwrap();
+	let verbose = matches.is_present("verbose");
+	let tags = matches.values_of("tags").map_or_else(|| Vec::new(), |v| v.collect::<Vec<_>>());
 	
 	// Create Get621 object
 	let g6 = match Get621::init() {
@@ -31,31 +33,34 @@ fn run_app(matches: ArgMatches) -> Result<(), String> {
 	};
 	
 	// Get posts
-	if let Some(tags) = matches.values_of("tags") {
-		match g6.list(&tags.collect::<Vec<_>>(), limit) {
-			Ok(posts) => {
-				for i in posts.iter() {
-					println!("{}", i);
-					println!("---");
+	match g6.list(&tags, limit) {
+		Ok(posts) => {
+			if verbose {
+				println!(
+					"{}",
+					posts.iter()
+					     .map(|p| p.to_string())
+					     .collect::<Vec<_>>()
+					     .join("\n----------------\n")
+				);
+			} else {
+				posts.iter().for_each(|p| println!("{}", p.id));
+			}
+		},
+		Err(e) => {
+			if verbose {
+				match e {
+					Error::MaxLimit(max) => {
+						eprintln!(
+							"{} is above the max limit for ordered queries ({}).",
+							max,
+							limit
+						)
+					},
+					_ => eprintln!("Something happened."),
 				}
-			},
-			Err(e) => {
-				if matches.is_present("verbose") {
-					match e {
-						Error::MaxLimit(max) => {
-							eprintln!(
-								"{} is above the max limit for ordered queries ({}).",
-								max,
-								limit
-							)
-						},
-						_ => eprintln!("Something happened."),
-					}
-				}	
-			},
-		}
-	} else {
-		println!("No tags!");
+			}	
+		},
 	}
 	
 	Ok(())
