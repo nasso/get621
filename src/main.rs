@@ -1,8 +1,65 @@
 extern crate clap;
 
-use clap::{Arg, App};
+use std::str::FromStr;
 
-use get621::{self, Error};
+use clap::{Arg, App, ArgMatches};
+
+use get621::{Get621, Error};
+
+fn valid_parse<T: FromStr>(v: &str, emsg: &str) -> Result<(), String> {
+	match v.parse::<T>() {
+		Ok(_) => Ok(()),
+		Err(_) => Err(String::from(emsg))
+	}
+}
+
+fn run_app(matches: ArgMatches) -> Result<(), String> {
+	// Get args
+	let limit = matches.value_of("limit").unwrap().parse().unwrap();
+	
+	// Create Get621 object
+	let g6 = match Get621::init() {
+		Ok(g6) => g6,
+		Err(e) => {
+			match e {
+				Error::CannotCreateClient(msg) => {
+					return Err(String::from(format!("Error when creating the client: {:?}", msg)))
+				},
+				_ => unreachable!(),
+			}
+		}
+	};
+	
+	// Get posts
+	if let Some(tags) = matches.values_of("tags") {
+		match g6.list(&tags.collect::<Vec<_>>(), limit) {
+			Ok(posts) => {
+				for i in posts.iter() {
+					println!("{}", i);
+					println!("---");
+				}
+			},
+			Err(e) => {
+				if matches.is_present("verbose") {
+					match e {
+						Error::MaxLimit(max) => {
+							eprintln!(
+								"{} is above the max limit for ordered queries ({}).",
+								max,
+								limit
+							)
+						},
+						_ => eprintln!("Something happened."),
+					}
+				}	
+			},
+		}
+	} else {
+		println!("No tags!");
+	}
+	
+	Ok(())
+}
 
 fn main() {
 	// CLI Arguments parsing
@@ -24,6 +81,7 @@ fn main() {
 				.long("limit")
 				.default_value("1")
 				.takes_value(true)
+				.validator(|v| valid_parse::<u64>(&v, "Must be a positive integer."))
 				.help("Maximum search result count"))
 			.arg(Arg::with_name("output")
 				.short("o")
@@ -41,7 +99,7 @@ fn main() {
 			.arg(Arg::with_name("save")
 				.short("s")
 				.long("save")
-				.help("Download results to ./<post_id>.<ext>"))
+				.help("Download every result to ./<post_id>.<ext>"))
 			.arg(Arg::with_name("verbose")
 				.short("v")
 				.long("verbose")
@@ -52,36 +110,11 @@ fn main() {
 				.help("Search tags"))
 		.get_matches();
 	
-	let limit = match matches.value_of("limit").unwrap().parse() {
-		Ok(v) => v,
-		Err(_) => {
-			eprintln!("The limit must be a positive integer.");
+	::std::process::exit(match run_app(matches) {
+		Ok(_) => 0,
+		Err(msg) => {
+			eprintln!("{}", msg);
 			1
-		},
-	};
-	
-	// Get posts
-	if let Some(tags) = matches.values_of("tags") {
-		match get621::list(&tags.collect::<Vec<_>>(), limit) {
-			Ok(posts) => {
-				
-			},
-			Err(e) => {
-				if matches.is_present("verbose") {
-					match e {
-						Error::MaxLimit(max) => {
-							eprintln!(
-								"{} is above the max limit for ordered queries ({}).",
-								max,
-								limit
-							)
-						},
-						_ => eprintln!("Something happened."),
-					}
-				}	
-			},
 		}
-	} else {
-		println!("No tags!");
-	}
+	})
 }
