@@ -2,7 +2,7 @@ extern crate chrono;
 extern crate reqwest;
 extern crate urlencoding;
 
-use std::fmt;
+use std::{cmp, fmt};
 
 use reqwest::{
 	Client,
@@ -22,14 +22,14 @@ use chrono::{
 
 use serde_json;
 
-static LIST_HARD_LIMIT: u64 = 320;
+static LIST_HARD_LIMIT: usize = 320;
 const REQ_COOLDOWN_DURATION: ::std::time::Duration = ::std::time::Duration::from_secs(1);
 
 pub type JsonValue = serde_json::Value;
 pub type Result<T> = ::std::result::Result<T, Error>;
 
 pub enum Error {
-	MaxLimit(u64),
+	MaxLimit(usize),
 	Http(u16),
 	Serial(String),
 	Redirect(String),
@@ -275,7 +275,7 @@ impl Get621 {
 		}
 	}
 	
-	pub fn list(&self, q: &[&str], limit: u64) -> Result<Vec<Post>> {
+	pub fn list(&self, q: &[&str], limit: usize) -> Result<Vec<Post>> {
 		let query_str = q.join(" ");
 		let query_str_url = urlencoding::encode(&query_str);
 		let ordered = q.iter().any(|t| t.starts_with("order:"));
@@ -297,7 +297,35 @@ impl Get621 {
 				posts.push(Post::from(p));
 			}
 		} else {
-			// let body = reqwest::get(format!("https://e621.net/post/index.json?limit={}, "));
+			let mut lowest_id = None;
+			
+			while posts.len() < limit {
+				let left = limit - posts.len();
+				let batch = cmp::min(left, LIST_HARD_LIMIT);
+				
+				let body = self.get_json(&format!(
+					"https://e621.net/post/index.json?limit={}&tags={}{}",
+					batch,
+					query_str_url,
+					if let Some(i) = lowest_id {
+						format!("&before_id={}", i)
+					} else {
+						"".to_string()
+					}
+				))?;
+				
+				for p in body.as_array().unwrap().iter() {
+					let post = Post::from(p);
+					
+					if let Some(i) = lowest_id {
+						lowest_id = Some(cmp::min(i, post.id));
+					} else {
+						lowest_id = Some(post.id);
+					}
+					
+					posts.push(post);
+				}
+			}
 		}
 		
 		Ok(posts)
