@@ -314,7 +314,13 @@ impl Get621 {
 					}
 				))?;
 				
-				for p in body.as_array().unwrap().iter() {
+				let post_array = body.as_array().unwrap();
+				
+				if post_array.is_empty() {
+					break;
+				}
+				
+				for p in post_array.iter() {
 					let post = Post::from(p);
 					
 					if let Some(i) = lowest_id {
