@@ -13,68 +13,51 @@ fn valid_parse<T: FromStr>(v: &str, emsg: &str) -> Result<(), String> {
 	}
 }
 
-fn run_app(matches: ArgMatches) -> Result<(), String> {
+fn translate_error(e: Error) -> String {
+	match e {
+		Error::AboveLimit(limit, max) => {
+			format!("{} is above the max limit for ordered queries ({})", limit, max)
+		},
+		Error::Http(code) => format!("HTTP error: {}", code),
+		Error::Serial(msg) => format!("Serialization error: {}", msg),
+		Error::Redirect(msg) => format!("Redirect error: {}", msg),
+		Error::CannotSendRequest(msg) => format!("Couldn't send request: {}", msg),
+		Error::CannotCreateClient(msg) => format!("Couldn't create client: {}", msg),
+	}
+}
+
+fn run_app(matches: ArgMatches) -> get621::Result<()> {
 	// Get args
 	let limit = matches.value_of("limit").unwrap().parse().unwrap();
 	let verbose = matches.is_present("verbose");
 	let json = matches.is_present("json");
 	let tags = matches.values_of("tags").map_or_else(|| Vec::new(), |v| v.collect::<Vec<_>>());
 	
-	let res = Get621::init()
-		.and_then(|g6| g6.list(&tags, limit));
+	let g6 = Get621::init()?;
+	let res = g6.list(&tags, limit)?;
+	
+	let posts = res.iter();
 	
 	// Get posts
-	match res {
-		Ok(posts) => {
-			if verbose {
-				println!(
-					"{}",
-					posts.iter()
-					     .map(|p| p.to_string())
-					     .collect::<Vec<_>>()
-					     .join("\n----------------\n")
-				);
-			} else if json {
-				println!(
-					"[{}]",
-					posts.iter()
-					     .map(|p| p.raw.clone())
-					     .collect::<Vec<_>>()
-					     .join(",")
-				);
-			} else {
-				posts.iter().for_each(|p| println!("{}", p.id));
-			}
-			
-			Ok(())
-		},
-		Err(e) => {
-			match e {
-				Error::MaxLimit(max) => {
-					Err(format!(
-						"{} is above the max limit for ordered queries ({})",
-						limit,
-						max
-					))
-				},
-				Error::Http(code) => {
-					Err(format!("HTTP error: {}", code))
-				},
-				Error::Serial(msg) => {
-					Err(format!("Serialization error: {}", msg))
-				},
-				Error::Redirect(msg) => {
-					Err(format!("Redirect error: {}", msg))
-				},
-				Error::CannotSendRequest(msg) => {
-					Err(format!("Couldn't send request: {}", msg))
-				},
-				Error::CannotCreateClient(msg) => {
-					Err(format!("Couldn't create client: {}", msg))
-				},
-			}
-		},
+	if verbose {
+		println!(
+			"{}",
+			posts.map(|p| p.to_string())
+			     .collect::<Vec<_>>()
+			     .join("\n----------------\n")
+		);
+	} else if json {
+		println!(
+			"[{}]",
+			posts.map(|p| p.raw.clone())
+			     .collect::<Vec<_>>()
+			     .join(",")
+		);
+	} else {
+		posts.for_each(|p| println!("{}", p.id));
 	}
+	
+	Ok(())
 }
 
 fn main() {
@@ -87,6 +70,7 @@ fn main() {
 			.arg(Arg::with_name("children")
 				.short("c")
 				.long("children")
+				.conflicts_with("parents")
 				.help("Take the children of search results"))
 			.arg(Arg::with_name("json")
 				.short("j")
@@ -110,6 +94,7 @@ fn main() {
 			.arg(Arg::with_name("parents")
 				.short("p")
 				.long("parents")
+				.conflicts_with("children")
 				.help("Take the parent post of each search result, if any"))
 			.arg(Arg::with_name("pool")
 				.short("P")
@@ -133,8 +118,8 @@ fn main() {
 	
 	::std::process::exit(match run_app(matches) {
 		Ok(_) => 0,
-		Err(msg) => {
-			eprintln!("{}", msg);
+		Err(e) => {
+			eprintln!("{}", translate_error(e));
 			1
 		}
 	})

@@ -29,7 +29,7 @@ pub type JsonValue = serde_json::Value;
 pub type Result<T> = ::std::result::Result<T, Error>;
 
 pub enum Error {
-	MaxLimit(usize),
+	AboveLimit(usize, usize),
 	Http(u16),
 	Serial(String),
 	Redirect(String),
@@ -275,6 +275,12 @@ impl Get621 {
 		}
 	}
 	
+	pub fn get_post(&self, id: u64) -> Result<Post> {
+		let body = self.get_json(&format!("https://e621.net/post/show.json?id={}", id))?;
+		
+		Ok(Post::from(&body))
+	}
+	
 	pub fn list(&self, q: &[&str], limit: usize) -> Result<Vec<Post>> {
 		let query_str = q.join(" ");
 		let query_str_url = urlencoding::encode(&query_str);
@@ -284,7 +290,7 @@ impl Get621 {
 		
 		if ordered {
 			if limit > LIST_HARD_LIMIT {
-				return Err(Error::MaxLimit(LIST_HARD_LIMIT));
+				return Err(Error::AboveLimit(limit, LIST_HARD_LIMIT));
 			}
 			
 			let body = self.get_json(&format!(
