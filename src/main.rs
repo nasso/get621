@@ -19,21 +19,11 @@ fn run_app(matches: ArgMatches) -> Result<(), String> {
 	let verbose = matches.is_present("verbose");
 	let tags = matches.values_of("tags").map_or_else(|| Vec::new(), |v| v.collect::<Vec<_>>());
 	
-	// Create Get621 object
-	let g6 = match Get621::init() {
-		Ok(g6) => g6,
-		Err(e) => {
-			match e {
-				Error::CannotCreateClient(msg) => {
-					return Err(String::from(format!("Error when creating the client: {:?}", msg)))
-				},
-				_ => unreachable!(),
-			}
-		}
-	};
+	let res = Get621::init()
+		.and_then(|g6| g6.list(&tags, limit));
 	
 	// Get posts
-	match g6.list(&tags, limit) {
+	match res {
 		Ok(posts) => {
 			if verbose {
 				println!(
@@ -46,24 +36,36 @@ fn run_app(matches: ArgMatches) -> Result<(), String> {
 			} else {
 				posts.iter().for_each(|p| println!("{}", p.id));
 			}
+			
+			Ok(())
 		},
 		Err(e) => {
-			if verbose {
-				match e {
-					Error::MaxLimit(max) => {
-						eprintln!(
-							"{} is above the max limit for ordered queries ({}).",
-							max,
-							limit
-						)
-					},
-					_ => eprintln!("Something happened."),
-				}
-			}	
+			match e {
+				Error::MaxLimit(max) => {
+					Err(format!(
+						"{} is above the max limit for ordered queries ({}).",
+						max,
+						limit
+					))
+				},
+				Error::Http(code) => {
+					Err(format!("HTTP error: {}", code))
+				},
+				Error::Serial(msg) => {
+					Err(format!("Serialization error: {}", msg))
+				},
+				Error::Redirect(msg) => {
+					Err(format!("Redirect error: {}", msg))
+				},
+				Error::CannotSendRequest(msg) => {
+					Err(format!("Couldn't send request: {}", msg))
+				},
+				Error::CannotCreateClient(msg) => {
+					Err(format!("Couldn't create client: {}", msg))
+				},
+			}
 		},
 	}
-	
-	Ok(())
 }
 
 fn main() {
@@ -115,10 +117,15 @@ fn main() {
 				.help("Search tags"))
 		.get_matches();
 	
+	let verbose = matches.is_present("verbose");
+	
 	::std::process::exit(match run_app(matches) {
 		Ok(_) => 0,
 		Err(msg) => {
-			eprintln!("{}", msg);
+			if verbose {
+				eprintln!("{}", msg);
+			}
+			
 			1
 		}
 	})
