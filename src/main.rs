@@ -33,28 +33,45 @@ fn run_app(matches: ArgMatches) -> get621::Result<()> {
 	let json = matches.is_present("json");
 	let tags = matches.values_of("tags").map_or_else(|| Vec::new(), |v| v.collect::<Vec<_>>());
 	
-	let g6 = Get621::init()?;
-	let res = g6.list(&tags, limit)?;
+	let parents = matches.is_present("parents");
+	let children = matches.is_present("children");
 	
-	let posts = res.iter();
+	let g6 = Get621::init()?;
+	let mut res = g6.list(&tags, limit)?;
+	
+	let mut posts = Vec::new();
+	
+	if parents {
+		while !res.is_empty() {
+			let p = res.pop().unwrap();
+			
+			if let Some(id) = p.parent_id {
+				posts.push(g6.get_post(id)?);
+			}
+		}
+	} else if children {
+		
+	} else {
+		posts.append(&mut res);
+	}
 	
 	// Get posts
 	if verbose {
 		println!(
 			"{}",
-			posts.map(|p| p.to_string())
+			posts.iter().map(|p| p.to_string())
 			     .collect::<Vec<_>>()
 			     .join("\n----------------\n")
 		);
 	} else if json {
 		println!(
 			"[{}]",
-			posts.map(|p| p.raw.clone())
+			posts.iter().map(|p| p.raw.clone())
 			     .collect::<Vec<_>>()
 			     .join(",")
 		);
 	} else {
-		posts.for_each(|p| println!("{}", p.id));
+		posts.iter().for_each(|p| println!("{}", p.id));
 	}
 	
 	Ok(())
