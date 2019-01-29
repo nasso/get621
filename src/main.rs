@@ -17,11 +17,11 @@ fn run_app(matches: ArgMatches) -> Result<(), String> {
 	// Get args
 	let limit = matches.value_of("limit").unwrap().parse().unwrap();
 	let verbose = matches.is_present("verbose");
+	let json = matches.is_present("json");
 	let tags = matches.values_of("tags").map_or_else(|| Vec::new(), |v| v.collect::<Vec<_>>());
 	
 	let res = Get621::init()
-		.and_then(|g6| g6.list(&tags, limit))
-		;
+		.and_then(|g6| g6.list(&tags, limit));
 	
 	// Get posts
 	match res {
@@ -33,6 +33,14 @@ fn run_app(matches: ArgMatches) -> Result<(), String> {
 					     .map(|p| p.to_string())
 					     .collect::<Vec<_>>()
 					     .join("\n----------------\n")
+				);
+			} else if json {
+				println!(
+					"[{}]",
+					posts.iter()
+					     .map(|p| p.raw.clone())
+					     .collect::<Vec<_>>()
+					     .join(",")
 				);
 			} else {
 				posts.iter().for_each(|p| println!("{}", p.id));
@@ -83,6 +91,8 @@ fn main() {
 			.arg(Arg::with_name("json")
 				.short("j")
 				.long("json")
+				.conflicts_with("verbose")
+				.conflicts_with("output")
 				.help("Output the results as JSON on the standard ouptut"))
 			.arg(Arg::with_name("limit")
 				.short("l")
@@ -94,6 +104,8 @@ fn main() {
 			.arg(Arg::with_name("output")
 				.short("o")
 				.long("output")
+				.conflicts_with("verbose")
+				.conflicts_with("json")
 				.help("Download and output posts to stdout (unseparated)"))
 			.arg(Arg::with_name("parents")
 				.short("p")
@@ -112,6 +124,7 @@ fn main() {
 				.short("v")
 				.long("verbose")
 				.conflicts_with("output")
+				.conflicts_with("json")
 				.help("Enable verbose output to standard output"))
 			.arg(Arg::with_name("tags")
 				.raw(true)
