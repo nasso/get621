@@ -20,7 +20,8 @@ fn run_app(matches: ArgMatches) -> Result<(), String> {
 	let tags = matches.values_of("tags").map_or_else(|| Vec::new(), |v| v.collect::<Vec<_>>());
 	
 	let res = Get621::init()
-		.and_then(|g6| g6.list(&tags, limit));
+		.and_then(|g6| g6.list(&tags, limit))
+		;
 	
 	// Get posts
 	match res {
@@ -43,9 +44,9 @@ fn run_app(matches: ArgMatches) -> Result<(), String> {
 			match e {
 				Error::MaxLimit(max) => {
 					Err(format!(
-						"{} is above the max limit for ordered queries ({}).",
-						max,
-						limit
+						"{} is above the max limit for ordered queries ({})",
+						limit,
+						max
 					))
 				},
 				Error::Http(code) => {
@@ -117,15 +118,10 @@ fn main() {
 				.help("Search tags"))
 		.get_matches();
 	
-	let verbose = matches.is_present("verbose");
-	
 	::std::process::exit(match run_app(matches) {
 		Ok(_) => 0,
 		Err(msg) => {
-			if verbose {
-				eprintln!("{}", msg);
-			}
-			
+			eprintln!("{}", msg);
 			1
 		}
 	})
