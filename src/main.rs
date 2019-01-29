@@ -50,7 +50,15 @@ fn run_app(matches: ArgMatches) -> get621::Result<()> {
 			}
 		}
 	} else if children {
-		
+		while !res.is_empty() {
+			let p = res.pop().unwrap();
+			
+			if let Some(c) = p.children {
+				for id in c.iter() {
+					posts.push(g6.get_post(*id)?);
+				}
+			}
+		}
 	} else {
 		posts.append(&mut res);
 	}

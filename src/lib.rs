@@ -102,14 +102,18 @@ pub struct Post {
 
 impl fmt::Display for Post {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-		write!(f, "#{} by ", self.id)?;
-		
-		let artist_count = self.artist.len();
-		for i in 0..artist_count {
-			match artist_count - i {
-				1 => writeln!(f, "{}", self.artist[i])?,
-				2 => write!(f, "{} and ", self.artist[i])?,
-				_ => write!(f, "{}, ", self.artist[i])?,
+		if let PostStatus::Deleted(ref reason) = &self.status {
+			writeln!(f, "#{} (deleted: {})", self.id, reason)?;
+		} else {
+			write!(f, "#{} by ", self.id)?;
+			
+			let artist_count = self.artist.len();
+			for i in 0..artist_count {
+				match artist_count - i {
+					1 => writeln!(f, "{}", self.artist[i])?,
+					2 => write!(f, "{} and ", self.artist[i])?,
+					_ => write!(f, "{}, ", self.artist[i])?,
+				}
 			}
 		}
 		
@@ -178,11 +182,18 @@ impl From<&JsonValue> for Post {
 			
 			parent_id: v["parent_id"].as_u64(),
 			children: v["children"]
-			          .as_array()
-			          .map(|v| v
-			                   .iter()
-			                   .map(|v| v.as_u64().unwrap())
-			                   .collect()),
+			          .as_str()
+			          .map(|c| {
+				if c.is_empty() {
+					Vec::new()
+				} else {
+					c
+					.split(',')
+					.map(|id| id.parse().unwrap())
+					.collect()
+				}
+			}),
+			          
 			sources: v["children"]
 			         .as_array()
 			         .map(|v| v
