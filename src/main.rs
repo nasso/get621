@@ -121,11 +121,11 @@ fn main() {
 				.long("parents")
 				.conflicts_with("children")
 				.help("Take the parent post of each search result, if any"))
-			.arg(Arg::with_name("pool")
+			.arg(Arg::with_name("pool_id")
 				.short("P")
 				.long("pool")
 				.takes_value(true)
-				.help("Search only in the posts from the pool (ordered)"))
+				.help("Search for posts in the given pool ID (ordered)"))
 			.arg(Arg::with_name("save")
 				.short("s")
 				.long("save")
@@ -138,6 +138,7 @@ fn main() {
 				.help("Enable verbose output to standard output"))
 			.arg(Arg::with_name("tags")
 				.raw(true)
+				.conflicts_with("pool_id")
 				.help("Search tags"))
 		.get_matches();
 	
