@@ -2,7 +2,7 @@ extern crate chrono;
 extern crate reqwest;
 extern crate urlencoding;
 
-use std::{cmp, fmt};
+use std::{io, cmp, fmt};
 
 use reqwest::{
 	Client,
@@ -35,6 +35,7 @@ pub enum Error {
 	Redirect(String),
 	CannotSendRequest(String),
 	CannotCreateClient(String),
+	Download(String),
 }
 
 pub enum PostStatus {
@@ -44,10 +45,29 @@ pub enum PostStatus {
 	Deleted(String),
 }
 
+impl PostStatus {
+	pub fn is_deleted(&self) -> bool {
+		match self {
+			PostStatus::Deleted(_) => true,
+			_ => false,
+		}
+	}
+}
+
 pub enum PostRating {
 	Safe,
 	Questionnable,
 	Explicit,
+}
+
+impl fmt::Display for PostRating {
+	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+		match self {
+			PostRating::Explicit => write!(f, "Explicit"),
+			PostRating::Questionnable => write!(f, "Questionnable"),
+			PostRating::Safe => write!(f, "Safe"),
+		}
+	}
 }
 
 pub enum PostFormat {
@@ -56,6 +76,18 @@ pub enum PostFormat {
 	GIF,
 	SWF,
 	WEBM,
+}
+
+impl fmt::Display for PostFormat {
+	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+		match self {
+			PostFormat::JPG => write!(f, "jpg"),
+			PostFormat::PNG => write!(f, "png"),
+			PostFormat::GIF => write!(f, "gif"),
+			PostFormat::SWF => write!(f, "swf"),
+			PostFormat::WEBM => write!(f, "webm"),
+		}
+	}
 }
 
 pub struct Post {
@@ -117,23 +149,15 @@ impl fmt::Display for Post {
 			}
 		}
 		
-		writeln!(f, "Rating: {}", match self.rating {
-			PostRating::Explicit => "Explicit",
-			PostRating::Questionnable => "Questionnable",
-			PostRating::Safe => "Safe",
-		})?;
+		writeln!(f, "Rating: {}", self.rating)?;
 		
 		writeln!(f, "Score: {}", self.score)?;
 		writeln!(f, "Favs: {}", self.fav_count)?;
+		
 		if let Some(ref t) = self.file_ext {
-			writeln!(f, "Type: {}", match t {
-				PostFormat::JPG => "jpg",
-				PostFormat::PNG => "png",
-				PostFormat::GIF => "gif",
-				PostFormat::SWF => "swf",
-				PostFormat::WEBM => "webm",
-			})?;
+			writeln!(f, "Type: {}", t)?;
 		}
+		
 		writeln!(f, "Created at: {}", self.created_at)?;
 		writeln!(f, "Tags: {}", self.tags.join(", "))?;
 		write!(f, "Description: {}", self.description)?;
@@ -254,6 +278,37 @@ impl Get621 {
 			
 			Err(e) => {
 				Err(Error::CannotCreateClient(format!("{:?}", e)))
+			},
+		}
+	}
+	
+	/// Downloads the post to `writer`.
+	/// 
+	/// On success, the total number of bytes that were copied from
+	/// `reader` to `writer` is returned.
+	pub fn download<W: ?Sized>(&self, p: &Post, writer: &mut W) -> Result<u64>
+		where W: io::Write
+	{
+		match self.client.get(&p.file_url).header(header::USER_AGENT, "").send() {
+			Ok(mut res) => {
+				if res.status().is_success() {
+					match res.copy_to(writer) {
+						Ok(v) => Ok(v),
+						Err(e) => {
+							Err(Error::Download(format!("{:?}", e)))
+						},
+					}
+				} else {
+					Err(Error::Http(res.status().as_u16()))
+				}
+			},
+			
+			Err(e) => {
+				if e.is_redirect() {
+					Err(Error::Redirect(format!("{:?}", e)))
+				} else {
+					Err(Error::CannotSendRequest(format!("{:?}", e)))
+				}
 			},
 		}
 	}

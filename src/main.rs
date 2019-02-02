@@ -1,10 +1,29 @@
 extern crate clap;
 
+use std::io;
+use std::fs::File;
 use std::str::FromStr;
 
 use clap::{Arg, App, ArgMatches};
 
-use get621::{Get621, Error};
+use get621::Get621;
+
+enum Error {
+	Get621Error(get621::Error),
+	IOError(io::Error),
+}
+
+impl From<get621::Error> for Error {
+	fn from(e: get621::Error) -> Self {
+		Error::Get621Error(e)
+	}
+}
+
+impl From<io::Error> for Error {
+	fn from(e: io::Error) -> Self {
+		Error::IOError(e)
+	}
+}
 
 fn valid_parse<T: FromStr>(v: &str, emsg: &str) -> Result<(), String> {
 	match v.parse::<T>() {
@@ -15,32 +34,48 @@ fn valid_parse<T: FromStr>(v: &str, emsg: &str) -> Result<(), String> {
 
 fn translate_error(e: Error) -> String {
 	match e {
-		Error::AboveLimit(limit, max) => {
-			format!("{} is above the max limit for ordered queries ({})", limit, max)
+		Error::Get621Error(e) => match e {
+			get621::Error::AboveLimit(limit, max) => {
+				format!("{} is above the max limit for ordered queries ({})", limit, max)
+			},
+			get621::Error::Http(code) => format!("HTTP error: {}", code),
+			get621::Error::Serial(msg) => format!("Serialization error: {}", msg),
+			get621::Error::Redirect(msg) => format!("Redirect error: {}", msg),
+			get621::Error::CannotSendRequest(msg) => format!("Couldn't send request: {}", msg),
+			get621::Error::CannotCreateClient(msg) => format!("Couldn't create client: {}", msg),
+			get621::Error::Download(msg) => format!("Error when downloading the post: {}", msg),
 		},
-		Error::Http(code) => format!("HTTP error: {}", code),
-		Error::Serial(msg) => format!("Serialization error: {}", msg),
-		Error::Redirect(msg) => format!("Redirect error: {}", msg),
-		Error::CannotSendRequest(msg) => format!("Couldn't send request: {}", msg),
-		Error::CannotCreateClient(msg) => format!("Couldn't create client: {}", msg),
+		
+		Error::IOError(e) => match e.kind() {
+			io::ErrorKind::NotFound => {
+				format!("One of the directory components of the file path does not exist.")
+			},
+			io::ErrorKind::PermissionDenied => format!("File access permission denied."),
+			_ => format!("IO Error: {:?}", e),
+		}
 	}
 }
 
-fn run_app(matches: ArgMatches) -> get621::Result<()> {
+fn run_app(matches: ArgMatches) -> Result<(), Error> {
 	// Get args
-	let limit = matches.value_of("limit").unwrap().parse().unwrap();
-	let verbose = matches.is_present("verbose");
-	let json = matches.is_present("json");
 	let tags = matches.values_of("tags").map_or_else(|| Vec::new(), |v| v.collect::<Vec<_>>());
+	let limit = matches.value_of("limit").unwrap().parse().unwrap();
+	
+	let verbose = matches.is_present("verbose");
+	let save = matches.is_present("save");
+	let json = matches.is_present("json");
 	
 	let parents = matches.is_present("parents");
 	let children = matches.is_present("children");
 	
+	// Post result list
+	let mut posts = Vec::new();
+	
+	// Create client
 	let g6 = Get621::init()?;
 	let mut res = g6.list(&tags, limit)?;
 	
-	let mut posts = Vec::new();
-	
+	// Get the posts
 	if parents {
 		while !res.is_empty() {
 			let p = res.pop().unwrap();
@@ -63,7 +98,7 @@ fn run_app(matches: ArgMatches) -> get621::Result<()> {
 		posts.append(&mut res);
 	}
 	
-	// Get posts
+	// Do whatever the user asked us to do
 	if verbose {
 		println!(
 			"{}",
@@ -80,6 +115,14 @@ fn run_app(matches: ArgMatches) -> get621::Result<()> {
 		);
 	} else {
 		posts.iter().for_each(|p| println!("{}", p.id));
+	}
+	
+	if save {
+		for p in posts.iter().filter(|p| !p.status.is_deleted()) {
+			let mut file = File::create(format!("{}.{}", p.id, p.file_ext.as_ref().unwrap()))?;
+			
+			g6.download(p, &mut file)?;
+		}
 	}
 	
 	Ok(())
