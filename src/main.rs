@@ -61,13 +61,6 @@ fn run_app(matches: ArgMatches) -> Result<(), Error> {
 	let tags = matches.values_of("tags").map_or_else(|| Vec::new(), |v| v.collect::<Vec<_>>());
 	let limit = matches.value_of("limit").unwrap().parse().unwrap();
 	
-	let verbose = matches.is_present("verbose");
-	let save = matches.is_present("save");
-	let json = matches.is_present("json");
-	
-	let parents = matches.is_present("parents");
-	let children = matches.is_present("children");
-	
 	// Post result list
 	let mut posts = Vec::new();
 	
@@ -76,7 +69,7 @@ fn run_app(matches: ArgMatches) -> Result<(), Error> {
 	let mut res = g6.list(&tags, limit)?;
 	
 	// Get the posts
-	if parents {
+	if matches.is_present("parents") {
 		while !res.is_empty() {
 			let p = res.pop().unwrap();
 			
@@ -84,7 +77,7 @@ fn run_app(matches: ArgMatches) -> Result<(), Error> {
 				posts.push(g6.get_post(id)?);
 			}
 		}
-	} else if children {
+	} else if matches.is_present("children") {
 		while !res.is_empty() {
 			let p = res.pop().unwrap();
 			
@@ -99,25 +92,31 @@ fn run_app(matches: ArgMatches) -> Result<(), Error> {
 	}
 	
 	// Do whatever the user asked us to do
-	if verbose {
+	if matches.is_present("verbose") {
 		println!(
 			"{}",
 			posts.iter().map(|p| p.to_string())
 			     .collect::<Vec<_>>()
 			     .join("\n----------------\n")
 		);
-	} else if json {
+	} else if matches.is_present("json") {
 		println!(
 			"[{}]",
 			posts.iter().map(|p| p.raw.clone())
 			     .collect::<Vec<_>>()
 			     .join(",")
 		);
+	} else if matches.is_present("output") {
+		let mut stdout = io::stdout();
+		
+		for p in posts.iter().filter(|p| !p.status.is_deleted()) {
+			g6.download(p, &mut stdout)?;
+		}
 	} else {
 		posts.iter().for_each(|p| println!("{}", p.id));
 	}
 	
-	if save {
+	if matches.is_present("save") {
 		for p in posts.iter().filter(|p| !p.status.is_deleted()) {
 			let mut file = File::create(format!("{}.{}", p.id, p.file_ext.as_ref().unwrap()))?;
 			
