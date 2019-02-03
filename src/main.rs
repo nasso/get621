@@ -144,7 +144,7 @@ fn main() {
 	// CLI Arguments parsing
 	let matches =
 		App::new("get621")
-			.version("1.1.0_dev")
+			.version("1.1.0")
 			.author("nasso <nassomails ~ at ~ gmail {dot} com>")
 			.about("E621/926 command line tool")
 			.arg(Arg::with_name("children")
