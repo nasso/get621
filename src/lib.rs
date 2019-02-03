@@ -347,6 +347,33 @@ impl Get621 {
 		Ok(Post::from(&body))
 	}
 	
+	pub fn pool(&self, pool_id: u64) -> Result<Vec<Post>> {
+		let mut body = self.get_json(&format!("https://e621.net/pool/show.json?id={}", pool_id))?;
+		
+		let mut page = 1;
+		let mut post_array = body["posts"].as_array().unwrap();
+		
+		let mut posts = Vec::new();
+		
+		loop {
+			for p in post_array.iter() {
+				posts.push(Post::from(p));
+			}
+			
+			page += 1;
+			body = self.get_json(
+				&format!("https://e621.net/pool/show.json?id={}&page={}", pool_id, page)
+			)?;
+			post_array = body["posts"].as_array().unwrap();
+			
+			if post_array.is_empty() {
+				break;
+			}
+		}
+		
+		Ok(posts)
+	}
+	
 	pub fn list(&self, q: &[&str], limit: usize) -> Result<Vec<Post>> {
 		let query_str = q.join(" ");
 		let query_str_url = urlencoding::encode(&query_str);

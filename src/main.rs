@@ -57,16 +57,23 @@ fn translate_error(e: Error) -> String {
 }
 
 fn run_app(matches: ArgMatches) -> Result<(), Error> {
-	// Get args
-	let tags = matches.values_of("tags").map_or_else(|| Vec::new(), |v| v.collect::<Vec<_>>());
-	let limit = matches.value_of("limit").unwrap().parse().unwrap();
-	
 	// Post result list
 	let mut posts = Vec::new();
 	
 	// Create client
 	let g6 = Get621::init()?;
-	let mut res = g6.list(&tags, limit)?;
+	
+	// Request
+	let mut res = if matches.is_present("pool_id") {
+		let pool_id = matches.value_of("pool_id").unwrap().parse().unwrap();
+		
+		g6.pool(pool_id)?
+	} else {
+		let tags = matches.values_of("tags").map_or_else(|| Vec::new(), |v| v.collect::<Vec<_>>());
+		let limit = matches.value_of("limit").unwrap().parse().unwrap();
+		
+		g6.list(&tags, limit)?
+	};
 	
 	// Get the posts
 	if matches.is_present("parents") {
@@ -167,6 +174,7 @@ fn main() {
 				.short("P")
 				.long("pool")
 				.takes_value(true)
+				.validator(|v| valid_parse::<u64>(&v, "Must be a positive integer."))
 				.help("Search for posts in the given pool ID (ordered)"))
 			.arg(Arg::with_name("save")
 				.short("s")
