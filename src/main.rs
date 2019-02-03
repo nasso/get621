@@ -59,15 +59,17 @@ fn translate_error(e: Error) -> String {
 fn run_app(matches: ArgMatches) -> Result<(), Error> {
 	// Post result list
 	let mut posts = Vec::new();
+	let mut pool_id = None;
 	
 	// Create client
 	let g6 = Get621::init()?;
 	
 	// Request
 	let mut res = if matches.is_present("pool_id") {
-		let pool_id = matches.value_of("pool_id").unwrap().parse().unwrap();
+		let id = matches.value_of("pool_id").unwrap().parse().unwrap();
+		pool_id = Some(id);
 		
-		g6.pool(pool_id)?
+		g6.pool(id)?
 	} else {
 		let tags = matches.values_of("tags").map_or_else(|| Vec::new(), |v| v.collect::<Vec<_>>());
 		let limit = matches.value_of("limit").unwrap().parse().unwrap();
@@ -124,8 +126,12 @@ fn run_app(matches: ArgMatches) -> Result<(), Error> {
 	}
 	
 	if matches.is_present("save") {
-		for p in posts.iter().filter(|p| !p.status.is_deleted()) {
-			let mut file = File::create(format!("{}.{}", p.id, p.file_ext.as_ref().unwrap()))?;
+		for (i, p) in posts.iter().filter(|p| !p.status.is_deleted()).enumerate() {
+			let mut file = if let Some(id) = pool_id {
+				File::create(format!("{}-{}_{}.{}", id, i + 1, p.id, p.file_ext.as_ref().unwrap()))?
+			} else {
+				File::create(format!("{}.{}", p.id, p.file_ext.as_ref().unwrap()))?
+			};
 			
 			g6.download(p, &mut file)?;
 		}
