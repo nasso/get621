@@ -89,7 +89,7 @@ pub struct Post {
     pub status: PostStatus,
 
     pub author: String,
-    pub creator_id: u64,
+    pub creator_id: Option<u64>,
     pub created_at: DateTime<Utc>,
 
     pub artist: Vec<String>,
@@ -175,7 +175,7 @@ impl From<&JsonValue> for Post {
             },
 
             author: v["author"].as_str().unwrap().to_string(),
-            creator_id: v["creator_id"].as_u64().unwrap(),
+            creator_id: v["creator_id"].as_u64(),
             created_at: Utc.timestamp(
                 v["created_at"]["s"].as_i64().unwrap(),
                 v["created_at"]["n"].as_u64().unwrap() as u32,
