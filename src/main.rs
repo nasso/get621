@@ -156,7 +156,7 @@ fn run_app(matches: ArgMatches) -> Result<(), Error> {
 fn main() {
     // CLI Arguments parsing
     let matches = App::new("get621")
-        .version("1.1.0")
+        .version("1.1.1")
         .author("nasso <nassomails ~ at ~ gmail {dot} com>")
         .about("E621/926 command line tool")
         .arg(
