@@ -28,7 +28,15 @@ impl From<io::Error> for Error {
 fn valid_parse<T: FromStr>(v: &str, emsg: &str) -> Result<(), String> {
     match v.parse::<T>() {
         Ok(_) => Ok(()),
-        Err(_) => Err(String::from(emsg)),
+        Err(_) => Err(emsg.to_string()),
+    }
+}
+
+fn output_mode_check(v: String) -> Result<(), String> {
+    if v == "id" || v == "json" || v == "raw" || v == "verbose" {
+        Ok(())
+    } else {
+        Err("Must be one of: id, json, raw, verbose".to_string())
     }
 }
 
@@ -104,32 +112,44 @@ fn run_app(matches: ArgMatches) -> Result<(), Error> {
     }
 
     // Do whatever the user asked us to do
-    if matches.is_present("verbose") {
-        println!(
-            "{}",
-            posts
-                .iter()
-                .map(|p| p.to_string())
-                .collect::<Vec<_>>()
-                .join("\n----------------\n")
-        );
-    } else if matches.is_present("json") {
-        println!(
-            "[{}]",
-            posts
-                .iter()
-                .map(|p| p.raw.clone())
-                .collect::<Vec<_>>()
-                .join(",")
-        );
-    } else if matches.is_present("output") {
-        let mut stdout = io::stdout();
+    let output_mode = matches.value_of("output_mode").unwrap();
 
-        for p in posts.iter().filter(|p| !p.status.is_deleted()) {
-            g6.download(p, &mut stdout)?;
+    match output_mode {
+        "id" => {
+            posts.iter().for_each(|p| println!("{}", p.id));
         }
-    } else {
-        posts.iter().for_each(|p| println!("{}", p.id));
+
+        "json" => {
+            println!(
+                "[{}]",
+                posts
+                    .iter()
+                    .map(|p| p.raw.clone())
+                    .collect::<Vec<_>>()
+                    .join(",")
+            );
+        }
+
+        "raw" => {
+            let mut stdout = io::stdout();
+
+            for p in posts.iter().filter(|p| !p.status.is_deleted()) {
+                g6.download(p, &mut stdout)?;
+            }
+        }
+
+        "verbose" => {
+            println!(
+                "{}",
+                posts
+                    .iter()
+                    .map(|p| p.to_string())
+                    .collect::<Vec<_>>()
+                    .join("\n----------------\n")
+            );
+        }
+
+        _ => (),
     }
 
     if matches.is_present("save") {
@@ -156,7 +176,7 @@ fn run_app(matches: ArgMatches) -> Result<(), Error> {
 fn main() {
     // CLI Arguments parsing
     let matches = App::new("get621")
-        .version("1.1.1")
+        .version("1.2.0_pre1")
         .author("nasso <nassomails ~ at ~ gmail {dot} com>")
         .about("E621/926 command line tool")
         .arg(
@@ -167,14 +187,6 @@ fn main() {
                 .help("Take the children of search results"),
         )
         .arg(
-            Arg::with_name("json")
-                .short("j")
-                .long("json")
-                .conflicts_with("verbose")
-                .conflicts_with("output")
-                .help("Output the results as JSON on the standard ouptut"),
-        )
-        .arg(
             Arg::with_name("limit")
                 .short("l")
                 .long("limit")
@@ -182,14 +194,6 @@ fn main() {
                 .takes_value(true)
                 .validator(|v| valid_parse::<u64>(&v, "Must be a positive integer."))
                 .help("Maximum search result count"),
-        )
-        .arg(
-            Arg::with_name("output")
-                .short("o")
-                .long("output")
-                .conflicts_with("verbose")
-                .conflicts_with("json")
-                .help("Download and output posts to stdout (unseparated)"),
         )
         .arg(
             Arg::with_name("parents")
@@ -213,16 +217,19 @@ fn main() {
                 .help("Download every result to ./<post_id>.<ext>"),
         )
         .arg(
-            Arg::with_name("verbose")
-                .short("v")
-                .long("verbose")
-                .conflicts_with("output")
-                .conflicts_with("json")
-                .help("Enable verbose output to standard output"),
+            Arg::with_name("output_mode")
+                .short("o")
+                .long("output")
+                .takes_value(true)
+                .default_value("id")
+                .validator(output_mode_check)
+                .help("Set output mode; one of: id, json, raw, verbose"),
         )
         .arg(
             Arg::with_name("tags")
-                .raw(true)
+                .index(1)
+                .multiple(true)
+                .allow_hyphen_values(true)
                 .conflicts_with("pool_id")
                 .help("Search tags"),
         )
