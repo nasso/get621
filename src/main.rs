@@ -1,12 +1,15 @@
 use clap::{App, Arg, ArgMatches, SubCommand};
 use get621::Get621;
 use globwalk;
+use reqwest::{self, multipart};
+use scraper::{Html, Selector};
 use std::{fmt, fs::File, io, str::FromStr};
 
 enum Error {
     Get621Error(get621::Error),
     IOError(io::Error),
     GlobError(globwalk::GlobError),
+    ReqwestError(reqwest::Error),
 }
 
 impl From<get621::Error> for Error {
@@ -27,12 +30,19 @@ impl From<globwalk::GlobError> for Error {
     }
 }
 
+impl From<reqwest::Error> for Error {
+    fn from(e: reqwest::Error) -> Self {
+        Error::ReqwestError(e)
+    }
+}
+
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Error::Get621Error(e) => write!(f, "{}", e),
             Error::IOError(e) => write!(f, "{}", e),
             Error::GlobError(e) => write!(f, "{}", e),
+            Error::ReqwestError(e) => write!(f, "{}", e),
         }
     }
 }
@@ -159,6 +169,11 @@ fn run_normal(matches: &ArgMatches) -> Result<(), Error> {
 
 // get621 reverse ...
 fn run_reverse(matches: &ArgMatches) -> Result<(), Error> {
+    let client = reqwest::Client::new();
+
+    let result_divs_selector =
+        Selector::parse("#pages > div:not(:first-child):not(#show1):not(#more1)").unwrap();
+
     for entry in globwalk::glob(matches.value_of("source").unwrap())?
         .into_iter()
         .filter_map(Result::ok)
@@ -166,9 +181,24 @@ fn run_reverse(matches: &ArgMatches) -> Result<(), Error> {
     {
         let path = entry.path();
 
-        // First, do an md5 check
+        println!("Looking for {}", path.to_string_lossy());
 
-        println!("{:?}", path);
+        let form = multipart::Form::new()
+            .text("service[]", "0")
+            .text("MAX_FILE_SIZE", "8388608")
+            .file("file", path)?
+            .text("url", "");
+
+        let mut resp = client
+            .post("http://iqdb.harry.lu/")
+            .multipart(form)
+            .send()?;
+
+        let doc = Html::parse_document(&resp.text()?);
+
+        for result in doc.select(&result_divs_selector) {
+            println!("found: {}", result.value().name.local);
+        }
     }
 
     Ok(())
