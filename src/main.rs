@@ -1,9 +1,25 @@
+#[macro_use]
+extern crate lazy_static;
+
 use clap::{App, Arg, ArgMatches, SubCommand};
-use get621::Get621;
+use get621::{Get621, Post};
 use globwalk;
+use regex::Regex;
 use reqwest::{self, multipart};
 use scraper::{Html, Selector};
-use std::{fmt, fs::File, io, str::FromStr};
+use std::{
+    fmt,
+    fs::File,
+    io::{self, Write},
+    str::FromStr,
+};
+
+fn valid_parse<T: FromStr>(v: &str, emsg: &str) -> Result<(), String> {
+    match v.parse::<T>() {
+        Ok(_) => Ok(()),
+        Err(_) => Err(emsg.to_string()),
+    }
+}
 
 enum Error {
     Get621Error(get621::Error),
@@ -47,10 +63,23 @@ impl fmt::Display for Error {
     }
 }
 
-fn valid_parse<T: FromStr>(v: &str, emsg: &str) -> Result<(), String> {
-    match v.parse::<T>() {
-        Ok(_) => Ok(()),
-        Err(_) => Err(emsg.to_string()),
+enum OutputMode {
+    Id,
+    Json,
+    Raw,
+    Verbose,
+    None,
+}
+
+impl From<&str> for OutputMode {
+    fn from(s: &str) -> Self {
+        match s {
+            "id" => OutputMode::Id,
+            "json" => OutputMode::Json,
+            "raw" => OutputMode::Raw,
+            "verbose" => OutputMode::Verbose,
+            _ => OutputMode::None,
+        }
     }
 }
 
@@ -60,6 +89,74 @@ fn output_mode_check(v: String) -> Result<(), String> {
     } else {
         Err("Must be one of: id, json, raw, verbose, none".to_string())
     }
+}
+
+fn output_posts<T: Into<OutputMode>>(g6: &Get621, posts: &Vec<Post>, mode: T) -> Result<(), Error> {
+    match mode.into() {
+        OutputMode::Id => {
+            posts.iter().for_each(|p| println!("{}", p.id));
+
+            Ok(())
+        }
+
+        OutputMode::Json => {
+            println!(
+                "[{}]",
+                posts
+                    .iter()
+                    .map(|p| p.raw.clone())
+                    .collect::<Vec<_>>()
+                    .join(",")
+            );
+
+            Ok(())
+        }
+
+        OutputMode::Raw => {
+            let mut stdout = io::stdout();
+
+            for p in posts.iter().filter(|p| !p.status.is_deleted()) {
+                g6.download(p, &mut stdout)?;
+            }
+
+            Ok(())
+        }
+
+        OutputMode::Verbose => {
+            println!(
+                "{}",
+                posts
+                    .iter()
+                    .map(|p| p.to_string())
+                    .collect::<Vec<_>>()
+                    .join("\n----------------\n")
+            );
+
+            Ok(())
+        }
+
+        _ => Ok(()),
+    }
+}
+
+fn save_posts(g6: &Get621, posts: &Vec<Post>, pool_id: Option<u64>) -> Result<(), Error> {
+    for (i, p) in posts.iter().filter(|p| !p.status.is_deleted()).enumerate() {
+        let mut file = if let Some(id) = pool_id {
+            File::create(format!(
+                "{}-{}_{}.{}",
+                id,
+                i + 1,
+                p.id,
+                p.file_ext.as_ref().unwrap()
+            ))?
+        } else {
+            File::create(format!("{}.{}", p.id, p.file_ext.as_ref().unwrap()))?
+        };
+
+        g6.download(p, &mut file)?;
+    }
+
+    Ok(())
 }
 
 // get621 ...
@@ -110,58 +207,10 @@ fn run_normal(matches: &ArgMatches) -> Result<(), Error> {
     }
 
     // Do whatever the user asked us to do
-    match matches.value_of("output_mode") {
-        Some("id") => {
-            posts.iter().for_each(|p| println!("{}", p.id));
-        }
-
-        Some("json") => {
-            println!(
-                "[{}]",
-                posts
-                    .iter()
-                    .map(|p| p.raw.clone())
-                    .collect::<Vec<_>>()
-                    .join(",")
-            );
-        }
-
-        Some("raw") => {
-            let mut stdout = io::stdout();
-
-            for p in posts.iter().filter(|p| !p.status.is_deleted()) {
-                g6.download(p, &mut stdout)?;
-            }
-        }
-
-        _ => {
-            println!(
-                "{}",
-                posts
-                    .iter()
-                    .map(|p| p.to_string())
-                    .collect::<Vec<_>>()
-                    .join("\n----------------\n")
-            );
-        }
-    }
+    output_posts(&g6, &posts, matches.value_of("output_mode").unwrap())?;
 
     if matches.is_present("save") {
-        for (i, p) in posts.iter().filter(|p| !p.status.is_deleted()).enumerate() {
-            let mut file = if let Some(id) = pool_id {
-                File::create(format!(
-                    "{}-{}_{}.{}",
-                    id,
-                    i + 1,
-                    p.id,
-                    p.file_ext.as_ref().unwrap()
-                ))?
-            } else {
-                File::create(format!("{}.{}", p.id, p.file_ext.as_ref().unwrap()))?
-            };
-
-            g6.download(p, &mut file)?;
-        }
+        save_posts(&g6, &posts, pool_id)?;
     }
 
     Ok(())
@@ -169,19 +218,40 @@ fn run_normal(matches: &ArgMatches) -> Result<(), Error> {
 
 // get621 reverse ...
 fn run_reverse(matches: &ArgMatches) -> Result<(), Error> {
-    let client = reqwest::Client::new();
+    lazy_static! {
+        static ref CLIENT: reqwest::Client = reqwest::Client::new();
+        static ref RESULT_DIVS_SELECTOR: Selector = Selector::parse(
+            "#pages > div:not(:first-child):not(#show1):not(#more1), #more1 > .pages > div"
+        )
+        .unwrap();
+        static ref E6_LINK_REGEX: Regex =
+            Regex::new(r#"https://e621\.net/post/show/(\d+)"#).unwrap();
+        static ref POST_SIMILARITY_REGEX: Regex = Regex::new(r#"(\d+)% similarity"#).unwrap();
+    }
 
-    let result_divs_selector =
-        Selector::parse("#pages > div:not(:first-child):not(#show1):not(#more1)").unwrap();
+    // Create client
+    let g6 = Get621::init()?;
 
-    for entry in globwalk::glob(matches.value_of("source").unwrap())?
+    let arg_source = matches.value_of("source").unwrap();
+    let arg_similarity = matches.value_of("similarity").unwrap().parse().unwrap();
+    let arg_outputmode = matches.value_of("output_mode").unwrap();
+
+    let is_verbose = match arg_outputmode.into() {
+        OutputMode::Verbose => true,
+        _ => false,
+    };
+
+    for entry in globwalk::glob(arg_source)?
         .into_iter()
         .filter_map(Result::ok)
         .filter(|entry| entry.path().is_file())
     {
         let path = entry.path();
 
-        println!("Looking for {}", path.to_string_lossy());
+        if is_verbose {
+            println!("Looking for {}", path.to_string_lossy());
+            println!("================================");
+        }
 
         let form = multipart::Form::new()
             .text("service[]", "0")
@@ -189,15 +259,57 @@ fn run_reverse(matches: &ArgMatches) -> Result<(), Error> {
             .file("file", path)?
             .text("url", "");
 
-        let mut resp = client
+        let mut resp = CLIENT
             .post("http://iqdb.harry.lu/")
             .multipart(form)
             .send()?;
 
         let doc = Html::parse_document(&resp.text()?);
 
-        for result in doc.select(&result_divs_selector) {
-            println!("found: {}", result.value().name.local);
+        let posts = doc
+            // for each div corresponding to a result
+            .select(&RESULT_DIVS_SELECTOR)
+            // get the inner html
+            .map(|result| result.inner_html())
+            // filter out posts below threshold
+            .filter(|html| {
+                match POST_SIMILARITY_REGEX
+                    .captures(&html)
+                    .and_then(|caps| caps.get(1))
+                    .and_then(|cap| cap.as_str().parse::<f64>().ok())
+                {
+                    Some(val) => val >= arg_similarity,
+                    None => false,
+                }
+            })
+            // get the e621 link
+            .filter_map(|html| {
+                E6_LINK_REGEX
+                    .captures(&html)
+                    .and_then(|caps| caps.get(1))
+                    .and_then(|cap| cap.as_str().parse::<u64>().ok())
+            })
+            // retrieve posts
+            .filter_map(|id| g6.get_post(id).ok())
+            .collect();
+
+        output_posts(&g6, &posts, arg_outputmode)?;
+
+        if matches.is_present("save") {
+            if is_verbose {
+                print!("Downloading...");
+                io::stdout().flush()?;
+            }
+
+            save_posts(&g6, &posts, None)?;
+
+            if is_verbose {
+                println!("\rDownload complete.");
+            }
+        }
+
+        if is_verbose {
+            println!();
         }
     }
 
@@ -282,6 +394,21 @@ fn main() {
                         .allow_hyphen_values(true)
                         .required(true)
                         .help("File or folder to reverse search; can be a glob pattern"),
+                )
+                .arg(
+                    Arg::with_name("similarity")
+                        .short("S")
+                        .long("similarity")
+                        .takes_value(true)
+                        .default_value("90")
+                        .validator(|v| valid_parse::<f64>(&v, "Must be a floating point value."))
+                        .help("Set the similarity threshold for matching posts."),
+                )
+                .arg(
+                    Arg::with_name("save")
+                        .short("s")
+                        .long("save")
+                        .help("Download all matching posts to ./<post_id>.<ext>"),
                 )
                 .arg(
                     Arg::with_name("output_mode")
