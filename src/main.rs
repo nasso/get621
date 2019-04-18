@@ -11,9 +11,11 @@ use std::{
     fmt,
     fs::File,
     io::{self, Write},
+    path::PathBuf,
     str::FromStr,
 };
 
+// asserts that a string can be parsed into a type
 fn valid_parse<T: FromStr>(v: &str, emsg: &str) -> Result<(), String> {
     match v.parse::<T>() {
         Ok(_) => Ok(()),
@@ -91,6 +93,26 @@ fn output_mode_check(v: String) -> Result<(), String> {
     }
 }
 
+// process a list of paths into another list, expanding glob patterns and folders
+fn expand_paths<S: AsRef<str>>(patterns: &[S]) -> Result<Vec<PathBuf>, Error> {
+    let mut results = Vec::new();
+
+    for p in patterns.into_iter() {
+        let p = p.as_ref();
+
+        if p.chars().any(|c| c == '*' || c == '{' || c == '}') {
+            for result in globwalk::glob(p)?.into_iter().filter_map(Result::ok) {
+                results.push(PathBuf::from(result.path()));
+            }
+        } else {
+            results.push(PathBuf::from(p));
+        }
+    }
+
+    Ok(results)
+}
+
+// output the posts
 fn output_posts<T: Into<OutputMode>>(g6: &Get621, posts: &Vec<Post>, mode: T) -> Result<(), Error> {
     match mode.into() {
         OutputMode::Id => {
@@ -139,6 +161,7 @@ fn output_posts<T: Into<OutputMode>>(g6: &Get621, posts: &Vec<Post>, mode: T) ->
     }
 }
 
+// save the posts
 fn save_posts(g6: &Get621, posts: &Vec<Post>, pool_id: Option<u64>) -> Result<(), Error> {
     for (i, p) in posts.iter().filter(|p| !p.status.is_deleted()).enumerate() {
         let mut file = if let Some(id) = pool_id {
@@ -232,7 +255,7 @@ fn run_reverse(matches: &ArgMatches) -> Result<(), Error> {
     // Create client
     let g6 = Get621::init()?;
 
-    let arg_source = matches.value_of("source").unwrap();
+    let arg_source = matches.values_of("source").unwrap().collect::<Vec<_>>();
     let arg_similarity = matches.value_of("similarity").unwrap().parse().unwrap();
     let arg_outputmode = matches.value_of("output_mode").unwrap();
 
@@ -241,13 +264,10 @@ fn run_reverse(matches: &ArgMatches) -> Result<(), Error> {
         _ => false,
     };
 
-    for entry in globwalk::glob(arg_source)?
+    for path in expand_paths(&arg_source)?
         .into_iter()
-        .filter_map(Result::ok)
-        .filter(|entry| entry.path().is_file())
+        .filter(|path| path.is_file())
     {
-        let path = entry.path();
-
         if is_verbose {
             println!("Looking for {}", path.to_string_lossy());
             println!("================================");
@@ -391,9 +411,11 @@ fn main() {
                 .arg(
                     Arg::with_name("source")
                         .index(1)
+                        .required(true)
+                        .multiple(true)
                         .allow_hyphen_values(true)
                         .required(true)
-                        .help("File or folder to reverse search; can be a glob pattern"),
+                        .help("Files or folders to reverse search; can be a glob pattern"),
                 )
                 .arg(
                     Arg::with_name("similarity")
