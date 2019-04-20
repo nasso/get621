@@ -60,7 +60,6 @@ pub enum OutputMode {
     Json,
     Raw,
     Verbose,
-    None,
 }
 
 impl From<&str> for OutputMode {
@@ -70,7 +69,7 @@ impl From<&str> for OutputMode {
             "json" => OutputMode::Json,
             "raw" => OutputMode::Raw,
             "verbose" => OutputMode::Verbose,
-            _ => OutputMode::None,
+            _ => panic!("Invalid output mode: {}", s),
         }
     }
 }
@@ -84,10 +83,10 @@ pub fn valid_parse<T: FromStr>(v: &str, emsg: &str) -> std::result::Result<(), S
 }
 
 pub fn output_mode_check(v: String) -> std::result::Result<(), String> {
-    if v == "id" || v == "json" || v == "raw" || v == "verbose" || v == "none" {
+    if v == "id" || v == "json" || v == "raw" || v == "verbose" {
         Ok(())
     } else {
-        Err("Must be one of: id, json, raw, verbose, none".to_string())
+        Err(String::from("Invalid output mode."))
     }
 }
 
@@ -154,8 +153,6 @@ pub fn output_posts<T: Into<OutputMode>>(g6: &Get621, posts: &Vec<Post>, mode: T
 
             Ok(())
         }
-
-        _ => Ok(()),
     }
 }
 
