@@ -33,7 +33,7 @@ pub fn args<'a, 'b>() -> Vec<Arg<'a, 'b>> {
             .takes_value(true)
             .default_value("verbose")
             .validator(output_mode_check)
-            .help("Set output mode; one of: id, json, raw, verbose, none"),
+            .help("Set output mode; one of: id, json, raw, verbose"),
     ]
 }
 
