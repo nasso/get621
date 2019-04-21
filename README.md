@@ -113,6 +113,12 @@ _Note: Linux users will probably need to have OpenSSL installed with the
 
 ## Changelog
 
+### v1.2.1
+
+* Added: `--direct-save` flag to the `reverse` command. It tells get621 to
+    directly downloads posts from e621 without requesting other post
+    information, thus bypassing slower API requests.
+
 ### v1.2.0
 
 * Added: `reverse` sub-command to perform reverse image search (using

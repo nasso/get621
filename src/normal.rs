@@ -95,10 +95,10 @@ pub fn run(matches: &ArgMatches) -> common::Result<()> {
     }
 
     // Do whatever the user asked us to do
-    output_posts(&g6, &posts, matches.value_of("output_mode").unwrap())?;
+    output_posts(&posts, matches.value_of("output_mode").unwrap())?;
 
     if matches.is_present("save") {
-        save_posts(&g6, &posts, pool_id)?;
+        save_posts(&posts, pool_id)?;
     }
 
     Ok(())

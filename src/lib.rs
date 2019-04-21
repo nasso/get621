@@ -2,11 +2,11 @@ extern crate chrono;
 extern crate reqwest;
 extern crate urlencoding;
 
-use std::{cmp, fmt, io};
+use std::{cmp, fmt};
 
 use reqwest::{
     header::{self, HeaderMap, HeaderValue},
-    Client, IntoUrl,
+    Client,
 };
 
 use chrono::{offset::Utc, DateTime, TimeZone};
@@ -26,7 +26,6 @@ pub enum Error {
     Redirect(String),
     CannotSendRequest(String),
     CannotCreateClient(String),
-    Download(String),
 }
 
 impl fmt::Display for Error {
@@ -42,7 +41,6 @@ impl fmt::Display for Error {
             Error::Redirect(msg) => write!(f, "Redirect error: {}", msg),
             Error::CannotSendRequest(msg) => write!(f, "Couldn't send request: {}", msg),
             Error::CannotCreateClient(msg) => write!(f, "Couldn't create client: {}", msg),
-            Error::Download(msg) => write!(f, "Error when downloading the post: {}", msg),
         }
     }
 }
@@ -282,47 +280,11 @@ impl Get621 {
             .build()
         {
             Ok(c) => Ok(Get621 { client: c }),
-
             Err(e) => Err(Error::CannotCreateClient(format!("{:?}", e))),
         }
     }
 
-    /// Downloads the post to `writer`.
-    ///
-    /// On success, the total number of bytes that were copied from
-    /// `reader` to `writer` is returned.
-    pub fn download<W: ?Sized>(&self, p: &Post, writer: &mut W) -> Result<u64>
-    where
-        W: io::Write,
-    {
-        match self
-            .client
-            .get(&p.file_url)
-            .header(header::USER_AGENT, "")
-            .send()
-        {
-            Ok(mut res) => {
-                if res.status().is_success() {
-                    match res.copy_to(writer) {
-                        Ok(v) => Ok(v),
-                        Err(e) => Err(Error::Download(format!("{:?}", e))),
-                    }
-                } else {
-                    Err(Error::Http(res.status().as_u16()))
-                }
-            }
-
-            Err(e) => {
-                if e.is_redirect() {
-                    Err(Error::Redirect(format!("{:?}", e)))
-                } else {
-                    Err(Error::CannotSendRequest(format!("{:?}", e)))
-                }
-            }
-        }
-    }
-
-    fn get_json<U: IntoUrl>(&self, url: U) -> Result<JsonValue> {
+    fn get_json<U: reqwest::IntoUrl>(&self, url: U) -> Result<JsonValue> {
         // Wait first to make sure we're not exceeding the limit
         ::std::thread::sleep(REQ_COOLDOWN_DURATION);
 

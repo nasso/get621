@@ -1,7 +1,12 @@
-use get621::{Get621, Post};
+use get621::Post;
 use glob;
 use reqwest;
 use std::{fmt, fs::File, io, path::PathBuf, str::FromStr};
+
+lazy_static! {
+    pub static ref CLIENT: reqwest::Client =
+        reqwest::Client::builder().timeout(None).build().unwrap();
+}
 
 pub enum Error {
     Get621Error(get621::Error),
@@ -9,6 +14,10 @@ pub enum Error {
     GlobError(glob::GlobError),
     PatternError(glob::PatternError),
     ReqwestError(reqwest::Error),
+    Http(u16),
+    Redirect(String),
+    CannotSendRequest(String),
+    Download(String),
 }
 
 impl From<get621::Error> for Error {
@@ -49,6 +58,10 @@ impl fmt::Display for Error {
             Error::GlobError(e) => write!(f, "{}", e),
             Error::PatternError(e) => write!(f, "{}", e),
             Error::ReqwestError(e) => write!(f, "{}", e),
+            Error::Http(code) => write!(f, "HTTP error: {}", code),
+            Error::Redirect(msg) => write!(f, "Redirect error: {}", msg),
+            Error::CannotSendRequest(msg) => write!(f, "Couldn't send request: {}", msg),
+            Error::Download(msg) => write!(f, "Error when downloading the post: {}", msg),
         }
     }
 }
@@ -105,8 +118,38 @@ pub fn expand_paths<S: AsRef<str>>(patterns: &[S]) -> Result<Vec<PathBuf>> {
     Ok(results)
 }
 
+/// Downloads the given URL to `writer`.
+///
+/// On success, the total number of bytes that were copied from `reader` to `writer` is returned.
+pub fn download<W, U>(url: U, writer: &mut W) -> Result<u64>
+where
+    U: reqwest::IntoUrl,
+    W: ?Sized + io::Write,
+{
+    match CLIENT.get(url).send() {
+        Ok(mut res) => {
+            if res.status().is_success() {
+                match res.copy_to(writer) {
+                    Ok(v) => Ok(v),
+                    Err(e) => Err(Error::Download(format!("{:?}", e))),
+                }
+            } else {
+                Err(Error::Http(res.status().as_u16()))
+            }
+        }
+
+        Err(e) => {
+            if e.is_redirect() {
+                Err(Error::Redirect(format!("{:?}", e)))
+            } else {
+                Err(Error::CannotSendRequest(format!("{:?}", e)))
+            }
+        }
+    }
+}
+
 // output the posts
-pub fn output_posts<T: Into<OutputMode>>(g6: &Get621, posts: &Vec<Post>, mode: T) -> Result<()> {
+pub fn output_posts<T: Into<OutputMode>>(posts: &Vec<Post>, mode: T) -> Result<()> {
     match mode.into() {
         OutputMode::Id => {
             posts.iter().for_each(|p| println!("{}", p.id));
@@ -131,7 +174,7 @@ pub fn output_posts<T: Into<OutputMode>>(g6: &Get621, posts: &Vec<Post>, mode: T
             let mut stdout = io::stdout();
 
             for p in posts.iter().filter(|p| !p.status.is_deleted()) {
-                g6.download(p, &mut stdout)?;
+                download(&p.file_url, &mut stdout)?;
             }
 
             Ok(())
@@ -157,7 +200,7 @@ pub fn output_posts<T: Into<OutputMode>>(g6: &Get621, posts: &Vec<Post>, mode: T
 }
 
 // save the posts
-pub fn save_posts(g6: &Get621, posts: &Vec<Post>, pool_id: Option<u64>) -> Result<()> {
+pub fn save_posts(posts: &Vec<Post>, pool_id: Option<u64>) -> Result<()> {
     for (i, p) in posts.iter().filter(|p| !p.status.is_deleted()).enumerate() {
         let mut file = if let Some(id) = pool_id {
             File::create(format!(
@@ -171,7 +214,7 @@ pub fn save_posts(g6: &Get621, posts: &Vec<Post>, pool_id: Option<u64>) -> Resul
             File::create(format!("{}.{}", p.id, p.file_ext.as_ref().unwrap()))?
         };
 
-        g6.download(p, &mut file)?;
+        download(&p.file_url, &mut file)?;
     }
 
     Ok(())

@@ -18,7 +18,7 @@ fn run_app(matches: &ArgMatches) -> common::Result<()> {
 fn main() {
     // CLI Arguments parsing
     let matches = App::new("get621")
-        .version("1.2.0")
+        .version("1.2.1")
         .author("nasso <nassomails ~ at ~ gmail {dot} com>")
         // default command
         .about("E621/926 command line tool")
