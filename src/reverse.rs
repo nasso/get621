@@ -30,7 +30,6 @@ pub fn args<'a, 'b>() -> Vec<Arg<'a, 'b>> {
             .short("s")
             .long("save")
             .help("Download all matching posts to ./<post_id>.<ext>"),
-        Arg::with_name("direct")
         Arg::with_name("direct_save")
             .short("d")
             .long("direct-save")
