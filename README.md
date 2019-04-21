@@ -78,6 +78,15 @@ get621 --pool <pool_id> --save
 
 _Note: `--pool` can be replaced with `-P`._
 
+### Reverse search images
+
+```sh
+get621 reverse path/to/image1.png /another/image2.gif ./glob/**/pattern/*.jpg
+```
+
+_Note: `-s` or `--save` can be used to download posts to the current working
+    directory._
+
 ## Building
 
 1. [Install rust](https://rustup.rs) if you don't have it already.
