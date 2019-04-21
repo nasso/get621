@@ -23,32 +23,27 @@ _Note: there can be up to 6 tags at once. Trying to search for more will cause a
 
 ### Search for posts
 
-Single post:
+#### Single post:
 ```sh
 get621 asriel_dreemurr order:score rating:s
 ```
 
-Multiple posts (here, 5):
+#### Multiple posts (here, 5):
 ```sh
 get621 asriel_dreemurr order:score rating:s --limit 5
 ```
 
 _Note: `--limit` can be replaced with `-l`._
 
-Negating tags (first hack):
+#### Blacklist tags:
 ```sh
-get621 asriel_dreemurr " -solo" order:score rating:s
+get621 asriel_dreemurr order:score rating:s -- -solo -chicken
 ```
 
-_Note: the dash mustn't be the first character, so a space is used._
-
-Negating tags (second hack):
-```sh
-get621 "asriel_dreemurr -solo order:score rating:s"
-```
-
-_Note: the dash mustn't be the first character, so there must be other tags
-    before it._
+_Note: Since the syntax to blacklist a tag uses a dash, it must be placed after
+    two dashes `--` to make the difference between a blacklisted tag and a
+    command option/flag (such as `-l` or `--limit`). As a result, anything after
+    `--` will be treated as a tag for the request._
 
 ### Saving posts
 
@@ -57,12 +52,12 @@ This will download posts to the current working directory as `<id>.<ext>`.
 ***This will overwrite any file with the same name in the same folder,
     without warning.***
 
-Single post:
+#### Single post:
 ```sh
 get621 --save asriel_dreemurr order:score rating:s
 ```
 
-Multiple posts (here, 10):
+#### Multiple posts (here, 10):
 ```sh
 get621 --save asriel_dreemurr order:score rating:s --limit 10
 ```
@@ -115,9 +110,8 @@ _Note: Linux users will probably need to have OpenSSL installed with the
     iqdb.harry.lu).
 * Added: `-o, --output <mode>` option to specify the output format: either `id`,
     `json`, `raw` or `verbose`.
-* Changed: `--` isn't needed anymore when specifying tags. As a result, negating
-    a tag (e.g. `-chicken`) requires some hack to work: adding quotes and a
-    space before the dash should work (e.g. `" -chicken"`).
+* Changed: `--` isn't needed anymore when specifying tags. As a result, negative
+    tags (e.g. `-chicken`) must be specified after `--`.
 * Removed: The following flags: `-j, --json, -o, --output, -v, --verbose`.
 
 ### v1.1.0
