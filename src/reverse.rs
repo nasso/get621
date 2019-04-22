@@ -6,7 +6,11 @@ use get621::Get621;
 use regex::Regex;
 use reqwest::{self, multipart};
 use scraper::{Html, Selector};
-use std::{fs::File, io, path::Path};
+use std::{
+    fs::File,
+    io::{self, Seek, SeekFrom},
+    path::Path,
+};
 use tempfile::tempfile;
 
 // arguments of the subcommand
@@ -214,6 +218,7 @@ pub fn run(matches: &ArgMatches) -> common::Result<()> {
                             // copy the downloaded data
                             let mut final_dest = File::create(format!("{}.{}", result.id, ext))?;
 
+                            temp_dl_dest.seek(SeekFrom::Start(0))?;
                             io::copy(&mut temp_dl_dest, &mut final_dest)?;
 
                             verbose_println!(vb, " downloaded to {}.{}", result.id, ext);
