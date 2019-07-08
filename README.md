@@ -1,3 +1,5 @@
+[![Build Status](https://travis-ci.com/nasso/get621.svg?branch=master)](https://travis-ci.com/nasso/get621)
+
 # get621
 Command line tool for [e621.net](https://e926.net), purely written in Rust.
 
