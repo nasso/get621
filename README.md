@@ -8,7 +8,8 @@ Command line tool for [e621.net](https://e926.net), purely written in Rust.
 * Post(s) downlading.
 * Parents/children posts fetching.
 * Posts/pools bulk downloading.
-* Unlimited result count (by-passes the API's limit with multiple requests).
+* Unlimited result count (by-passes the API's limit by making multiple requests
+    in sequence).
 * Reverse image searching (using [iqdb.harry.lu](http://iqdb.harry.lu)).
 * Various output modes:
     - "verbose" (artist, id, tags, description...).
