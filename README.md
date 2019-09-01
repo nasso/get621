@@ -130,6 +130,10 @@ See [LICENSE-MIT] and [LICENSE-APACHE-2.0].
 
 ## Changelog
 
+### v1.2.2
+
+* Updated license and the versions of dependencies
+
 ### v1.2.1
 
 * Added: `--direct-save` flag to the `reverse` command. It tells get621 to
