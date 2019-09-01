@@ -3,6 +3,7 @@ name = "get621"
 version = "1.2.1"
 authors = ["nasso <nassomails ~ at ~ gmail {dot} com>"]
 edition = "2018"
+license = "MIT OR Apache-2.0"
 
 [dependencies]
 tempfile = "3.0.7"

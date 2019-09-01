@@ -1,5 +1,5 @@
 # get621 &middot; [![GitHub license](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/nasso/get621/blob/master/LICENSE.md) [![Build Status](https://travis-ci.com/nasso/get621.svg?branch=master)](https://travis-ci.com/nasso/get621)
-Command line tool for [e621.net](https://e926.net), purely written in Rust.
+Command line tool for [e621.net](https://e926.net), written in Rust.
 
 ## Features
 
@@ -111,6 +111,15 @@ _Note: Linux users will probably need to have OpenSSL installed with the
     on Ubuntu and `openssl-devel` on Fedora). `pkg-config` is also required when
     targeting Linux._
 
+## License
+
+`get621` is licensed under the terms of either the MIT license or the Apache
+License (Version 2.0), at your choice.
+
+See [LICENSE-MIT] and [LICENSE-APACHE-2.0].
+
+[LICENSE-MIT]: https://github.com/nasso/get621/blob/master/LICENSE-MIT
+[LICENSE-APACHE-2.0]: https://github.com/nasso/get621/blob/master/LICENSE-APACHE-2.0
 
 ## Changelog
 
