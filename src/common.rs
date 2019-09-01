@@ -1,5 +1,6 @@
 use get621::Post;
 use glob;
+use lazy_static::lazy_static;
 use reqwest;
 use std::{fmt, fs::File, io, path::PathBuf, str::FromStr};
 

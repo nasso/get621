@@ -3,6 +3,7 @@ use crate::common::{
 };
 use clap::{Arg, ArgMatches};
 use get621::Get621;
+use lazy_static::lazy_static;
 use regex::Regex;
 use reqwest::{self, multipart};
 use scraper::{Html, Selector};
