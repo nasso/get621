@@ -1,4 +1,11 @@
-# get621 &middot; [![GitHub license](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/nasso/get621/blob/master/LICENSE.md) [![Build Status](https://travis-ci.com/nasso/get621.svg?branch=master)](https://travis-ci.com/nasso/get621)
+# get621
+
+[![Build Status](https://travis-ci.com/nasso/get621.svg?branch=master)](
+https://travis-ci.com/nasso/get621)
+[![GitHub license](
+https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](
+https://github.com/nasso/get621/blob/master/README.md#license)
+
 Command line tool for [e621.net](https://e926.net), written in Rust.
 
 ## Features
