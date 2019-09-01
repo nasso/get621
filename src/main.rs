@@ -5,7 +5,7 @@ mod common;
 mod normal;
 mod reverse;
 
-use clap::{App, ArgMatches, SubCommand};
+use clap::{crate_version, App, ArgMatches, SubCommand};
 
 // runs the program
 fn run_app(matches: &ArgMatches) -> common::Result<()> {
@@ -18,7 +18,7 @@ fn run_app(matches: &ArgMatches) -> common::Result<()> {
 fn main() {
     // CLI Arguments parsing
     let matches = App::new("get621")
-        .version("1.2.1")
+        .version(&crate_version!()[..])
         .author("nasso <nassomails ~ at ~ gmail {dot} com>")
         // default command
         .about("E621/926 command line tool")
