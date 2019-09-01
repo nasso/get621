@@ -3,6 +3,11 @@ name = "get621"
 version = "1.2.1"
 authors = ["nasso <nassomails ~ at ~ gmail {dot} com>"]
 edition = "2018"
+description = "E621 CLI"
+repository = "https://github.com/nasso/get621"
+readme = "README.md"
+keywords = ["e621", "e926", "furry", "cli"]
+categories = ["command-line-utilities"]
 license = "MIT OR Apache-2.0"
 
 [dependencies]
