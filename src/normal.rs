@@ -1,6 +1,6 @@
-use crate::common::{self, output_mode_check, output_posts, save_posts, valid_parse};
-use clap::{Arg, ArgMatches};
-use get621::Get621;
+use crate::common::{self, output_mode_check, output_posts, post_map, save_posts, valid_parse};
+use clap::{crate_version, Arg, ArgMatches};
+use rs621::client::Client;
 
 pub fn args<'a, 'b>() -> Vec<Arg<'a, 'b>> {
     vec![
@@ -21,12 +21,6 @@ pub fn args<'a, 'b>() -> Vec<Arg<'a, 'b>> {
             .long("parents")
             .conflicts_with("children")
             .help("Take the parent post of each search result, if any"),
-        Arg::with_name("pool_id")
-            .short("P")
-            .long("pool")
-            .takes_value(true)
-            .validator(|v| valid_parse::<u64>(&v, "Must be a positive integer."))
-            .help("Search for posts in the given pool ID (ordered)"),
         Arg::with_name("save")
             .short("s")
             .long("save")
@@ -42,63 +36,33 @@ pub fn args<'a, 'b>() -> Vec<Arg<'a, 'b>> {
             .index(1)
             .multiple(true)
             .allow_hyphen_values(true)
-            .conflicts_with("pool_id")
             .help("Search tags"),
     ]
 }
 
 // get621 ...
 pub fn run(matches: &ArgMatches) -> common::Result<()> {
-    // Post result list
-    let mut posts = Vec::new();
-    let mut pool_id = None;
+    let limit: u64 = matches.value_of("limit").unwrap().parse().unwrap();
 
     // Create client
-    let g6 = Get621::init()?;
+    let client = Client::new(&format!("get621/{} (by nasso on e621)", crate_version!()))?;
+
+    // search tags
+    let tags = matches
+        .values_of("tags")
+        .map_or_else(|| Vec::new(), |v| v.collect::<Vec<_>>());
 
     // Request
-    let mut res = if matches.is_present("pool_id") {
-        let id = matches.value_of("pool_id").unwrap().parse().unwrap();
-        pool_id = Some(id);
-
-        g6.pool(id)?
-    } else {
-        let tags = matches
-            .values_of("tags")
-            .map_or_else(|| Vec::new(), |v| v.collect::<Vec<_>>());
-        let limit = matches.value_of("limit").unwrap().parse().unwrap();
-
-        g6.list(&tags, limit)?
-    };
+    let post_iter = client.post_search(&tags[..]).take(limit as usize);
 
     // Get the posts
-    if matches.is_present("parents") {
-        while !res.is_empty() {
-            let p = res.pop().unwrap();
-
-            if let Some(id) = p.parent_id {
-                posts.push(g6.get_post(id)?);
-            }
-        }
-    } else if matches.is_present("children") {
-        while !res.is_empty() {
-            let p = res.pop().unwrap();
-
-            if let Some(c) = p.children {
-                for id in c.iter() {
-                    posts.push(g6.get_post(*id)?);
-                }
-            }
-        }
-    } else {
-        posts.append(&mut res);
-    }
+    let posts = post_map(&client, matches.into(), post_iter)?;
 
     // Do whatever the user asked us to do
-    output_posts(&posts, matches.value_of("output_mode").unwrap())?;
+    output_posts(&posts, matches.value_of("output_mode").unwrap().into())?;
 
     if matches.is_present("save") {
-        save_posts(&posts, pool_id)?;
+        save_posts(&posts, None)?;
     }
 
     Ok(())

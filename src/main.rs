@@ -1,12 +1,14 @@
 mod common;
 mod normal;
+mod pool;
 mod reverse;
 
-use clap::{crate_version, App, ArgMatches, SubCommand};
+use clap::{crate_version, App, ArgMatches};
 
 // runs the program
-fn run_app(matches: &ArgMatches) -> common::Result<()> {
+fn run(matches: &ArgMatches) -> common::Result<()> {
     match matches.subcommand() {
+        ("pool", Some(sub_matches)) => pool::run(sub_matches),
         ("reverse", Some(sub_matches)) => reverse::run(sub_matches),
         _ => normal::run(matches),
     }
@@ -20,15 +22,11 @@ fn main() {
         // default command
         .about("E621/926 command line tool")
         .args(&normal::args())
-        // reverse subcommand
-        .subcommand(
-            SubCommand::with_name("reverse")
-                .about("E621/926 reverse searching utils")
-                .args(&reverse::args()),
-        )
+        .subcommand(pool::subcommand())
+        .subcommand(reverse::subcommand())
         .get_matches();
 
-    ::std::process::exit(match run_app(&matches) {
+    ::std::process::exit(match run(&matches) {
         Ok(_) => 0,
         Err(e) => {
             eprintln!("{}", e);

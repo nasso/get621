@@ -1,7 +1,13 @@
-use get621::Post;
+use clap::ArgMatches;
+use custom_error::custom_error;
 use glob;
 use lazy_static::lazy_static;
 use reqwest;
+use rs621::{
+    client::Client as Rs621Client,
+    error::Result as Rs621Result,
+    post::{Post, PostStatus},
+};
 use std::{fmt, fs::File, io, path::PathBuf, str::FromStr};
 
 lazy_static! {
@@ -9,62 +15,16 @@ lazy_static! {
         reqwest::Client::builder().timeout(None).build().unwrap();
 }
 
-pub enum Error {
-    Get621Error(get621::Error),
-    IOError(io::Error),
-    GlobError(glob::GlobError),
-    PatternError(glob::PatternError),
-    ReqwestError(reqwest::Error),
-    Http(u16),
-    Redirect(String),
-    CannotSendRequest(String),
-    Download(String),
-}
-
-impl From<get621::Error> for Error {
-    fn from(e: get621::Error) -> Self {
-        Error::Get621Error(e)
-    }
-}
-
-impl From<io::Error> for Error {
-    fn from(e: io::Error) -> Self {
-        Error::IOError(e)
-    }
-}
-
-impl From<glob::GlobError> for Error {
-    fn from(e: glob::GlobError) -> Self {
-        Error::GlobError(e)
-    }
-}
-
-impl From<glob::PatternError> for Error {
-    fn from(e: glob::PatternError) -> Self {
-        Error::PatternError(e)
-    }
-}
-
-impl From<reqwest::Error> for Error {
-    fn from(e: reqwest::Error) -> Self {
-        Error::ReqwestError(e)
-    }
-}
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Error::Get621Error(e) => write!(f, "{}", e),
-            Error::IOError(e) => write!(f, "{}", e),
-            Error::GlobError(e) => write!(f, "{}", e),
-            Error::PatternError(e) => write!(f, "{}", e),
-            Error::ReqwestError(e) => write!(f, "{}", e),
-            Error::Http(code) => write!(f, "HTTP error: {}", code),
-            Error::Redirect(msg) => write!(f, "Redirect error: {}", msg),
-            Error::CannotSendRequest(msg) => write!(f, "Couldn't send request: {}", msg),
-            Error::Download(msg) => write!(f, "Error when downloading the post: {}", msg),
-        }
-    }
+custom_error! { pub Error
+    Rs621Error{source:rs621::error::Error} = "{source}",
+    IOError{source:io::Error} = "{source}",
+    GlobError{source:glob::GlobError} = "{source}",
+    PatternError{source:glob::PatternError} = "{source}",
+    ReqwestError{source:reqwest::Error} = "{source}",
+    Http{code:u16} = "HTTP error: {code}",
+    Redirect{desc:String} = "Redirect error: {desc}",
+    CannotSendRequest{desc:String} = "Couldn't send request: {desc}",
+    Download{desc:String} = "Error when downloading the post: {desc}",
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -119,6 +79,62 @@ pub fn expand_paths<S: AsRef<str>>(patterns: &[S]) -> Result<Vec<PathBuf>> {
     Ok(results)
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum PostMapMode {
+    Parents,
+    Children,
+    None,
+}
+
+impl From<&ArgMatches<'_>> for PostMapMode {
+    fn from(matches: &ArgMatches) -> Self {
+        if matches.is_present("parents") {
+            PostMapMode::Parents
+        } else if matches.is_present("children") {
+            PostMapMode::Children
+        } else {
+            PostMapMode::None
+        }
+    }
+}
+
+pub fn post_map(
+    client: &Rs621Client,
+    mode: PostMapMode,
+    post_iter: impl Iterator<Item = Rs621Result<Post>>,
+) -> Result<Vec<Post>> {
+    Ok(match mode {
+        PostMapMode::None => post_iter
+            .map(|r| r.map_err(|e| e.into()))
+            .collect::<Result<Vec<_>>>()?,
+        PostMapMode::Parents => post_iter
+            .filter_map(|p| match p {
+                Ok(p) => p.parent_id.map(|id| client.get_post(id)),
+                Err(e) => Some(Err(e)),
+            })
+            .map(|r| r.map_err(|e| e.into()))
+            .collect::<Result<Vec<_>>>()?,
+        PostMapMode::Children => {
+            // Vec holding all the children of all the posts
+            let mut all_children = Vec::new();
+
+            // collect the children of every post in a Vec
+            for post in post_iter {
+                let post_children = post?
+                    .children
+                    .iter()
+                    .map(|id| client.get_post(*id).map_err(|e| e.into()))
+                    .collect::<Result<Vec<_>>>()?;
+
+                // add it to the big Vec
+                all_children.extend(post_children);
+            }
+
+            all_children
+        }
+    })
+}
+
 /// Downloads the given URL to `writer`.
 ///
 /// On success, the total number of bytes that were copied from `reader` to `writer` is returned.
@@ -127,31 +143,57 @@ where
     U: reqwest::IntoUrl,
     W: ?Sized + io::Write,
 {
-    match CLIENT.get(url).send() {
-        Ok(mut res) => {
-            if res.status().is_success() {
-                match res.copy_to(writer) {
-                    Ok(v) => Ok(v),
-                    Err(e) => Err(Error::Download(format!("{:?}", e))),
+    let mut res = CLIENT.get(url).send()?;
+
+    if res.status().is_success() {
+        Ok(res.copy_to(writer)?)
+    } else {
+        Err(Error::Http {
+            code: res.status().as_u16(),
+        })
+    }
+}
+
+#[derive(Debug)]
+struct DisplayablePost<'a>(&'a Post);
+
+impl fmt::Display for DisplayablePost<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        if let PostStatus::Deleted(ref reason) = &self.0.status {
+            writeln!(f, "#{} (deleted: {})", self.0.id, reason)?;
+        } else {
+            write!(f, "#{} by ", self.0.id)?;
+
+            let artist_count = self.0.artists.len();
+            for i in 0..artist_count {
+                match artist_count - i {
+                    1 => writeln!(f, "{}", self.0.artists[i])?,
+                    2 => write!(f, "{} and ", self.0.artists[i])?,
+                    _ => write!(f, "{}, ", self.0.artists[i])?,
                 }
-            } else {
-                Err(Error::Http(res.status().as_u16()))
             }
         }
 
-        Err(e) => {
-            if e.is_redirect() {
-                Err(Error::Redirect(format!("{:?}", e)))
-            } else {
-                Err(Error::CannotSendRequest(format!("{:?}", e)))
-            }
+        writeln!(f, "Rating: {}", self.0.rating)?;
+
+        writeln!(f, "Score: {}", self.0.score)?;
+        writeln!(f, "Favs: {}", self.0.fav_count)?;
+
+        if let Some(ref t) = self.0.file_ext {
+            writeln!(f, "Type: {}", t)?;
         }
+
+        writeln!(f, "Created at: {}", self.0.created_at)?;
+        writeln!(f, "Tags: {}", self.0.tags.join(", "))?;
+        write!(f, "Description: {}", self.0.description)?;
+
+        Ok(())
     }
 }
 
 // output the posts
-pub fn output_posts<T: Into<OutputMode>>(posts: &Vec<Post>, mode: T) -> Result<()> {
-    match mode.into() {
+pub fn output_posts(posts: &Vec<Post>, mode: OutputMode) -> Result<()> {
+    match mode {
         OutputMode::Id => {
             posts.iter().for_each(|p| println!("{}", p.id));
 
@@ -174,8 +216,8 @@ pub fn output_posts<T: Into<OutputMode>>(posts: &Vec<Post>, mode: T) -> Result<(
         OutputMode::Raw => {
             let mut stdout = io::stdout();
 
-            for p in posts.iter().filter(|p| !p.status.is_deleted()) {
-                download(&p.file_url, &mut stdout)?;
+            for p in posts.iter().filter(|p| !p.is_deleted()) {
+                download(p.file_url.as_ref().unwrap(), &mut stdout)?;
             }
 
             Ok(())
@@ -189,7 +231,7 @@ pub fn output_posts<T: Into<OutputMode>>(posts: &Vec<Post>, mode: T) -> Result<(
                     "{}",
                     posts
                         .iter()
-                        .map(|p| p.to_string())
+                        .map(|p| DisplayablePost(p).to_string())
                         .collect::<Vec<_>>()
                         .join("\n----------------\n")
                 );
@@ -202,7 +244,7 @@ pub fn output_posts<T: Into<OutputMode>>(posts: &Vec<Post>, mode: T) -> Result<(
 
 // save the posts
 pub fn save_posts(posts: &Vec<Post>, pool_id: Option<u64>) -> Result<()> {
-    for (i, p) in posts.iter().filter(|p| !p.status.is_deleted()).enumerate() {
+    for (i, p) in posts.iter().filter(|p| !p.is_deleted()).enumerate() {
         let mut file = if let Some(id) = pool_id {
             File::create(format!(
                 "{}-{}_{}.{}",
@@ -215,7 +257,7 @@ pub fn save_posts(posts: &Vec<Post>, pool_id: Option<u64>) -> Result<()> {
             File::create(format!("{}.{}", p.id, p.file_ext.as_ref().unwrap()))?
         };
 
-        download(&p.file_url, &mut file)?;
+        download(p.file_url.as_ref().unwrap(), &mut file)?;
     }
 
     Ok(())

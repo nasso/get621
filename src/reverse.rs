@@ -1,11 +1,11 @@
 use crate::common::{
     self, expand_paths, output_mode_check, output_posts, save_posts, valid_parse, OutputMode,
 };
-use clap::{Arg, ArgMatches};
-use get621::Get621;
+use clap::{crate_version, App, Arg, ArgMatches, SubCommand};
 use lazy_static::lazy_static;
 use regex::Regex;
 use reqwest::{self, multipart};
+use rs621::client::Client;
 use scraper::{Html, Selector};
 use std::{
     fs::File,
@@ -15,40 +15,50 @@ use std::{
 use tempfile::tempfile;
 
 // arguments of the subcommand
-pub fn args<'a, 'b>() -> Vec<Arg<'a, 'b>> {
-    vec![
-        Arg::with_name("source")
-            .index(1)
-            .required(true)
-            .multiple(true)
-            .allow_hyphen_values(true)
-            .required(true)
-            .help("Files or folders to reverse search; can be a glob pattern"),
-        Arg::with_name("similarity")
-            .short("S")
-            .long("similarity")
-            .takes_value(true)
-            .default_value("90")
-            .validator(|v| valid_parse::<f64>(&v, "Must be a floating point value."))
-            .help("Set the similarity threshold for matching posts (in percents)"),
-        Arg::with_name("save")
-            .short("s")
-            .long("save")
-            .help("Download all matching posts to ./<post_id>.<ext>"),
-        Arg::with_name("direct_save")
-            .short("d")
-            .long("direct-save")
-            .overrides_with("save")
-            .conflicts_with("output_mode")
-            .help("Download posts directly without requesting other post information (faster)"),
-        Arg::with_name("output_mode")
-            .short("o")
-            .long("output")
-            .takes_value(true)
-            .default_value("verbose")
-            .validator(output_mode_check)
-            .help("Set output mode; one of: id, json, raw, verbose"),
-    ]
+pub fn subcommand<'a, 'b>() -> App<'a, 'b> {
+    SubCommand::with_name("reverse")
+        .about("E621/926 reverse searching utils")
+        .arg(
+            Arg::with_name("source")
+                .index(1)
+                .required(true)
+                .multiple(true)
+                .allow_hyphen_values(true)
+                .required(true)
+                .help("Files or folders to reverse search; can be a glob pattern"),
+        )
+        .arg(
+            Arg::with_name("similarity")
+                .short("S")
+                .long("similarity")
+                .takes_value(true)
+                .default_value("90")
+                .validator(|v| valid_parse::<f64>(&v, "Must be a floating point value."))
+                .help("Set the similarity threshold for matching posts (in percents)"),
+        )
+        .arg(
+            Arg::with_name("save")
+                .short("s")
+                .long("save")
+                .help("Download all matching posts to ./<post_id>.<ext>"),
+        )
+        .arg(
+            Arg::with_name("direct_save")
+                .short("d")
+                .long("direct-save")
+                .overrides_with("save")
+                .conflicts_with("output_mode")
+                .help("Download posts directly without requesting other post information (faster)"),
+        )
+        .arg(
+            Arg::with_name("output_mode")
+                .short("o")
+                .long("output")
+                .takes_value(true)
+                .default_value("verbose")
+                .validator(output_mode_check)
+                .help("Set output mode; one of: id, json, raw, verbose"),
+        )
 }
 
 struct ReverseSearchResult {
@@ -165,10 +175,13 @@ pub fn run(matches: &ArgMatches) -> common::Result<()> {
     };
 
     // Create client
-    let g6 = if flag_direct {
+    let e6 = if flag_direct {
         None
     } else {
-        Some(Get621::init()?)
+        Some(Client::new(&format!(
+            "get621/{} (by nasso on e621)",
+            crate_version!()
+        ))?)
     };
 
     expand_paths(&arg_source)?
@@ -232,14 +245,14 @@ pub fn run(matches: &ArgMatches) -> common::Result<()> {
                 // regular post fetching
                 let posts = results
                     .into_iter()
-                    .filter_map(|result| match g6 {
-                        Some(ref g6) => g6.get_post(result.id).ok(),
+                    .filter_map(|result| match e6 {
+                        Some(ref e6) => e6.get_post(result.id).ok(),
                         _ => None,
                     })
                     .collect();
 
                 // output all the posts as usual
-                output_posts(&posts, arg_outputmode)?;
+                output_posts(&posts, arg_outputmode.into())?;
 
                 // maybe save them
                 if flag_save {
