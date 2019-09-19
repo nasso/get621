@@ -1,10 +1,8 @@
 # get621
-
 [![Build Status](https://travis-ci.com/nasso/get621.svg?branch=master)](
 https://travis-ci.com/nasso/get621)
-[![GitHub license](
-https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](
-https://github.com/nasso/get621/blob/master/README.md#license)
+[![Telegram](https://img.shields.io/badge/Telegram-Join%20Chat-blue.svg)](
+https://t.me/rs621)
 
 Command line tool for [e621.net](https://e926.net), written in Rust.
 
