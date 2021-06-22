@@ -1,6 +1,6 @@
 [package]
 name = "get621"
-version = "1.3.0-alpha1"
+version = "1.3.0"
 authors = ["nasso <nassomails ~ at ~ gmail {dot} com>"]
 edition = "2018"
 description = "E621 CLI"

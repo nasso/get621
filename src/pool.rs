@@ -7,7 +7,7 @@ use rs621::{client::Client, pool::PoolSearch};
 
 pub fn subcommand<'a, 'b>() -> App<'a, 'b> {
     SubCommand::with_name("pool")
-        .about("E621/926 pool related utils")
+        .about("Pool related commands")
         .arg(
             Arg::with_name("url")
                 .short("u")

@@ -18,7 +18,7 @@ use std::{fs::File, io::Read, path::Path};
 // arguments of the subcommand
 pub fn subcommand<'a, 'b>() -> App<'a, 'b> {
     SubCommand::with_name("reverse")
-        .about("E621/926 reverse searching utils")
+        .about("Similar image search (experimental)")
         .arg(
             Arg::with_name("url")
                 .short("u")

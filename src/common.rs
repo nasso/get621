@@ -3,7 +3,11 @@ use futures::{stream::StreamExt, Stream};
 use glob;
 use lazy_static::lazy_static;
 use reqwest;
-use rs621::{client::Client as Rs621Client, error::Result as Rs621Result, post::Post};
+use rs621::{
+    client::Client as Rs621Client,
+    error::Result as Rs621Result,
+    post::{Post, PostFileExtension, PostRating},
+};
 use std::{fmt, fs::File, io, path::PathBuf, str::FromStr};
 
 lazy_static! {
@@ -203,9 +207,9 @@ impl fmt::Display for DisplayablePost<'_> {
             f,
             "Rating: {}",
             match self.0.rating {
-                rs621::post::PostRating::Safe => "safe",
-                rs621::post::PostRating::Questionable => "questionable",
-                rs621::post::PostRating::Explicit => "explicit",
+                PostRating::Safe => "safe",
+                PostRating::Questionable => "questionable",
+                PostRating::Explicit => "explicit",
             }
         )?;
 
@@ -220,11 +224,11 @@ impl fmt::Display for DisplayablePost<'_> {
             f,
             "Type: {}",
             match self.0.file.ext {
-                rs621::post::PostFileExtension::Jpeg => "JPEG",
-                rs621::post::PostFileExtension::Png => "PNG",
-                rs621::post::PostFileExtension::Gif => "GIF",
-                rs621::post::PostFileExtension::Swf => "SWF",
-                rs621::post::PostFileExtension::WebM => "WEBM",
+                PostFileExtension::Jpeg => "JPEG",
+                PostFileExtension::Png => "PNG",
+                PostFileExtension::Gif => "GIF",
+                PostFileExtension::Swf => "SWF",
+                PostFileExtension::WebM => "WEBM",
             }
         )?;
 
@@ -314,11 +318,11 @@ pub async fn save_posts(posts: &[Post], pool_id: Option<u64>) -> Result<()> {
                 p.id,
                 p.file.url.as_ref().unwrap(),
                 match p.file.ext {
-                    rs621::post::PostFileExtension::Jpeg => "jpg",
-                    rs621::post::PostFileExtension::Png => "png",
-                    rs621::post::PostFileExtension::Gif => "gif",
-                    rs621::post::PostFileExtension::Swf => "swf",
-                    rs621::post::PostFileExtension::WebM => "webm",
+                    PostFileExtension::Jpeg => "jpg",
+                    PostFileExtension::Png => "png",
+                    PostFileExtension::Gif => "gif",
+                    PostFileExtension::Swf => "swf",
+                    PostFileExtension::WebM => "webm",
                 },
             )
         })
