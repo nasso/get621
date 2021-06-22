@@ -216,7 +216,9 @@ impl fmt::Display for DisplayablePost<'_> {
         writeln!(
             f,
             "Score: {} (+{}; -{})",
-            self.0.score.total, self.0.score.up, self.0.score.down
+            self.0.score.total,
+            self.0.score.up,
+            self.0.score.down.abs()
         )?;
         writeln!(f, "Favs: {}", self.0.fav_count)?;
 
