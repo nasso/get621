@@ -1,23 +1,31 @@
 use crate::common::{
-    self, expand_paths, output_mode_check, output_posts, save_posts, valid_parse, OutputMode,
+    self, download, expand_paths, output_mode_check, output_posts, save_posts, valid_parse, Error,
+    OutputMode, Result,
 };
 use clap::{crate_version, App, Arg, ArgMatches, SubCommand};
+use futures::StreamExt;
 use lazy_static::lazy_static;
 use regex::Regex;
-use reqwest::{self, multipart};
+use reqwest::{
+    self,
+    multipart::{self, Part},
+};
 use rs621::client::Client;
 use scraper::{Html, Selector};
-use std::{
-    fs::File,
-    io::{self, Seek, SeekFrom},
-    path::Path,
-};
-use tempfile::tempfile;
+use serde::Deserialize;
+use std::{fs::File, io::Read, path::Path};
 
 // arguments of the subcommand
 pub fn subcommand<'a, 'b>() -> App<'a, 'b> {
     SubCommand::with_name("reverse")
         .about("E621/926 reverse searching utils")
+        .arg(
+            Arg::with_name("url")
+                .short("u")
+                .long("url")
+                .default_value("https://e926.net")
+                .help("The URL of the server where requests should be made."),
+        )
         .arg(
             Arg::with_name("source")
                 .index(1)
@@ -57,81 +65,126 @@ pub fn subcommand<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
                 .default_value("verbose")
                 .validator(output_mode_check)
-                .help("Set output mode; one of: id, json, raw, verbose"),
+                .help("Set output mode; one of: id, raw, verbose"),
         )
 }
 
+#[derive(Deserialize)]
 struct ReverseSearchResult {
     id: u64,
-    md5: String,
+    file_ext: String,
+    file_url: String,
 }
 
-static DIRECT_FORMATS: [&str; 3] = ["png", "jpg", "gif"];
+async fn get_csrf_token(page_url: &str) -> Result<(String, String)> {
+    lazy_static! {
+        static ref SELECT_META: Selector = Selector::parse("meta[name=\"csrf-token\"]").unwrap();
+    }
 
-// macro for verbose output -> println!
-macro_rules! verbose_println {
-    ($is_verbose:expr) => ({
-        if $is_verbose {
-            println!()
-        }
-    });
-    ($is_verbose:expr, $($arg:tt)*) => ({
-        if $is_verbose {
-            println!($($arg)*)
-        }
-    });
-}
+    let response = common::CLIENT
+        .get(page_url)
+        .header(
+            "User-Agent",
+            &format!("get621/{} (by nasso on e621)", crate_version!()),
+        )
+        .send()
+        .await?;
 
-// macro for verbose output -> print!
-macro_rules! verbose_print {
-    ($is_verbose:expr) => ({
-        if $is_verbose {
-            print!()
-        }
-    });
-    ($is_verbose:expr, $($arg:tt)*) => ({
-        if $is_verbose {
-            print!($($arg)*)
-        }
-    });
+    let cookie = response
+        .headers()
+        .get("set-cookie")
+        .ok_or(Error::AuthTokenNotFound)?
+        .to_str()
+        .or(Err(Error::AuthTokenNotFound))?
+        .into();
+
+    let doc = Html::parse_document(&response.text().await?);
+
+    Ok((
+        doc.select(&SELECT_META)
+            .next()
+            .and_then(|tag| tag.value().attr("content"))
+            .ok_or(Error::AuthTokenNotFound)?
+            .into(),
+        cookie,
+    ))
 }
 
 // do the reverse search and return the results
-fn reverse_search(path: &Path, min_similarity: f64) -> common::Result<Vec<ReverseSearchResult>> {
+async fn reverse_search(
+    url: &str,
+    path: &Path,
+    min_similarity: f64,
+) -> Result<Vec<ReverseSearchResult>> {
     lazy_static! {
-        static ref RESULT_DIVS_SELECTOR: Selector = Selector::parse(
-            "#pages > div:not(:first-child):not(#show1):not(#more1), #more1 > .pages > div"
-        )
-        .unwrap();
-        static ref E6_LINK_REGEX: Regex =
-            Regex::new(r#"https://e621\.net/post/show/(\d+)"#).unwrap();
-        static ref E6_MD5_REGEX: Regex =
-            Regex::new(r#"e621/[0-9a-f]{2}/[0-9a-f]{2}/([0-9a-f]{32})\.jpg"#).unwrap();
-        static ref POST_SIMILARITY_REGEX: Regex = Regex::new(r#"(\d+)% similarity"#).unwrap();
+        static ref SELECT_RESULTS: Selector = Selector::parse(".post-preview").unwrap();
+        static ref POST_SIMILARITY_REGEX: Regex = Regex::new(r#"Similarity:?\s*(\d+)"#).unwrap();
     }
 
+    let (token, cookie) = get_csrf_token(&format!("{}/iqdb_queries", url)).await?;
+
     let form = multipart::Form::new()
-        .text("service[]", "0")
-        .text("MAX_FILE_SIZE", "8388608")
-        .file("file", path)?
-        .text("url", "");
+        .text("authenticity_token", token)
+        .text("url", "")
+        .part("file", {
+            let file_name = path
+                .file_name()
+                .map(|filename| filename.to_string_lossy().into_owned());
+            let mime = mime_guess::from_path(path).first_or_octet_stream();
 
-    let mut resp = common::CLIENT
-        .post("http://iqdb.harry.lu/")
+            let mut file = File::open(path)?;
+            let mut bytes = Vec::new();
+            file.read_to_end(&mut bytes)?;
+
+            let field = Part::bytes(bytes).mime_str(mime.essence_str())?;
+
+            if let Some(file_name) = file_name {
+                field.file_name(file_name)
+            } else {
+                field
+            }
+        });
+
+    let mut json: serde_json::Value = common::CLIENT
+        .post(format!("{}/iqdb_queries.json", url))
+        .header(
+            "User-Agent",
+            &format!("get621/{} (by nasso on e621)", crate_version!()),
+        )
+        .header("Cookie", cookie)
         .multipart(form)
-        .send()?;
+        .send()
+        .await?
+        .json()
+        .await?;
 
-    let doc = Html::parse_document(&resp.text()?);
+    let mut results = Vec::new();
+
+    for candidate in json
+        .as_array_mut()
+        .ok_or(Error::IqdbQueryError)?
+        .into_iter()
+    {
+        if let Some(similarity) = candidate["score"].as_f64() {
+            if similarity >= min_similarity {
+                results.push(serde_json::from_value(candidate["post"]["posts"].take())?);
+            }
+        } else {
+            return Err(Error::IqdbQueryError);
+        }
+    }
+
+    Ok(results)
+    /*
+    let doc = Html::parse_document(&doc);
 
     Ok(doc
-        // for each div corresponding to a result
-        .select(&RESULT_DIVS_SELECTOR)
-        // get the inner html
-        .map(|result| result.inner_html())
+        // for each result
+        .select(&SELECT_RESULTS)
         // filter out posts below threshold
-        .filter(|html| {
+        .filter(|elem| {
             match POST_SIMILARITY_REGEX
-                .captures(&html)
+                .captures(&elem.inner_html())
                 .and_then(|caps| caps.get(1))
                 .and_then(|cap| cap.as_str().parse::<f64>().ok())
             {
@@ -140,33 +193,30 @@ fn reverse_search(path: &Path, min_similarity: f64) -> common::Result<Vec<Revers
             }
         })
         // get the e621 link
-        .map(|html| {
+        .map(|elem| {
             (
-                E6_LINK_REGEX
-                    .captures(&html)
-                    .and_then(|caps| caps.get(1))
-                    .and_then(|cap| cap.as_str().parse::<u64>().ok()),
-                E6_MD5_REGEX
-                    .captures(&html)
-                    .and_then(|caps| caps.get(1))
-                    .map(|cap| cap.as_str().to_string()),
+                elem.value().attr("data-id"),
+                elem.value().attr("data-file-ext"),
+                elem.value().attr("data-file-url"),
             )
         })
         // retrieve posts
-        .filter(|(id, md5)| id.is_some() && md5.is_some())
-        .map(|(id, md5)| ReverseSearchResult {
-            id: id.unwrap(),
-            md5: md5.unwrap(),
+        .filter(|(id, _, _)| id.is_some())
+        .map(|(id, ext, url)| ReverseSearchResult {
+            id: id.unwrap().parse::<u64>().unwrap(),
+            file_ext: ext.unwrap().into(),
+            file_url: url.map(String::from),
         })
         .collect())
+    */
 }
 
 // get621 reverse ...
-pub fn run(matches: &ArgMatches) -> common::Result<()> {
+pub async fn run(matches: &ArgMatches<'_>) -> Result<()> {
+    let url = matches.value_of("url").unwrap();
     let arg_source = matches.values_of("source").unwrap().collect::<Vec<_>>();
     let arg_similarity = matches.value_of("similarity").unwrap().parse().unwrap();
     let arg_outputmode = matches.value_of("output_mode").unwrap();
-    let flag_direct = matches.is_present("direct_save");
     let flag_save = matches.is_present("save");
 
     let vb = match arg_outputmode.into() {
@@ -175,101 +225,65 @@ pub fn run(matches: &ArgMatches) -> common::Result<()> {
     };
 
     // Create client
-    let e6 = if flag_direct {
+    let client = if matches.is_present("direct_save") {
         None
     } else {
-        Some(Client::new(&format!(
-            "get621/{} (by nasso on e621)",
-            crate_version!()
-        ))?)
+        Some(Client::new(
+            url,
+            &format!("get621/{} (by nasso on e621)", crate_version!()),
+        )?)
     };
 
-    expand_paths(&arg_source)?
+    // macro for verbose output -> println!
+    macro_rules! verbose_println {
+        ($($arg:tt)*) => { if vb { println!($($arg)*) } }
+    }
+
+    let file_paths = expand_paths(&arg_source)?
         .into_iter()
-        // only take files!
-        .filter(|path| path.is_file())
-        // verbose output
-        .inspect(|path| {
-            verbose_println!(vb, "Looking for {}", path.display());
-            verbose_println!(vb, "================================");
-        })
+        .filter(|path| path.is_file());
+
+    for path in file_paths {
+        verbose_println!("Looking for {}", path.display());
+        verbose_println!("================================");
+
         // do the reverse search
-        .filter_map(|path| {
-            reverse_search(&path, arg_similarity)
-                .or_else(|e| {
-                    eprintln!("Error: {}", e);
-                    Err(())
-                })
-                .ok()
-        })
-        // process the results
-        .map(|results| {
-            if flag_direct {
-                // don't even ask e621 for anything
-                for result in results.into_iter() {
-                    verbose_println!(vb, "Found MD5: {}", result.md5);
+        let results = reverse_search(url, &path, arg_similarity).await?;
 
-                    let mut temp_dl_dest = tempfile()?;
+        if results.is_empty() {
+            verbose_println!("No result.");
+        } else if let Some(ref client) = client {
+            // just get post information
+            let posts = client
+                .get_posts(&results.into_iter().map(|r| r.id).collect::<Vec<_>>())
+                .map(|r| r.map_err(Error::from))
+                .collect::<Vec<_>>()
+                .await
+                .into_iter()
+                .collect::<Result<Vec<_>>>()?;
 
-                    // test for each format as it could be any
-                    for ext in DIRECT_FORMATS.iter() {
-                        verbose_print!(vb, "Looking for {}...", ext);
+            // output all the posts as usual
+            output_posts(&posts, arg_outputmode.into()).await?;
 
-                        if common::download(
-                            &format!(
-                                "https://static1.e621.net/data/{}/{}/{}.{}",
-                                &result.md5[0..2],
-                                &result.md5[2..4],
-                                &result.md5,
-                                ext
-                            ),
-                            &mut temp_dl_dest,
-                        )
-                        .is_err()
-                        {
-                            verbose_println!(vb, " not found");
-                        } else {
-                            // copy the downloaded data
-                            let mut final_dest = File::create(format!("{}.{}", result.id, ext))?;
-
-                            temp_dl_dest.seek(SeekFrom::Start(0))?;
-                            io::copy(&mut temp_dl_dest, &mut final_dest)?;
-
-                            verbose_println!(vb, " downloaded to {}.{}", result.id, ext);
-
-                            break;
-                        }
-                    }
-                }
-            } else {
-                // regular post fetching
-                let posts = results
-                    .into_iter()
-                    .filter_map(|result| match e6 {
-                        Some(ref e6) => e6.get_post(result.id).ok(),
-                        _ => None,
-                    })
-                    .collect();
-
-                // output all the posts as usual
-                output_posts(&posts, arg_outputmode.into())?;
-
-                // maybe save them
-                if flag_save {
-                    save_posts(&posts, None)?;
-                }
+            // maybe save them
+            if flag_save {
+                save_posts(&posts, None).await?;
             }
+        } else {
+            // no client = directly download the image
+            for result in results.into_iter() {
+                verbose_println!("Downloading {}...", result.file_url);
 
-            // verbose empty line
-            verbose_println!(vb);
+                let dest_path = format!("{}.{}", result.id, result.file_ext);
+                let mut dest = File::create(&dest_path)?;
 
-            Ok(())
-        })
-        // print all the errors
-        .for_each(|r: common::Result<()>| match r {
-            Err(e) => eprintln!("Error: {}", e),
-            _ => (),
-        });
+                download(result.file_url, &mut dest).await?;
+            }
+        }
+
+        // verbose empty line
+        verbose_println!();
+    }
 
     Ok(())
 }

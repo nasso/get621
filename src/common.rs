@@ -1,37 +1,43 @@
 use clap::ArgMatches;
-use custom_error::custom_error;
+use futures::{stream::StreamExt, Stream};
 use glob;
 use lazy_static::lazy_static;
 use reqwest;
-use rs621::{
-    client::Client as Rs621Client,
-    error::Result as Rs621Result,
-    post::{Post, PostStatus},
-};
+use rs621::{client::Client as Rs621Client, error::Result as Rs621Result, post::Post};
 use std::{fmt, fs::File, io, path::PathBuf, str::FromStr};
 
 lazy_static! {
-    pub static ref CLIENT: reqwest::Client =
-        reqwest::Client::builder().timeout(None).build().unwrap();
+    pub static ref CLIENT: reqwest::Client = reqwest::Client::builder().build().unwrap();
 }
 
-custom_error! { pub Error
-    Rs621Error{source:rs621::error::Error} = "{source}",
-    IOError{source:io::Error} = "{source}",
-    GlobError{source:glob::GlobError} = "{source}",
-    PatternError{source:glob::PatternError} = "{source}",
-    ReqwestError{source:reqwest::Error} = "{source}",
-    Http{code:u16} = "HTTP error: {code}",
-    Redirect{desc:String} = "Redirect error: {desc}",
-    CannotSendRequest{desc:String} = "Couldn't send request: {desc}",
-    Download{desc:String} = "Error when downloading the post: {desc}",
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error("API error: {0}")]
+    Rs621Error(#[from] rs621::error::Error),
+    #[error("IO error: {0}")]
+    IOError(#[from] io::Error),
+    #[error("Glob pattern error: {0}")]
+    GlobError(#[from] glob::GlobError),
+    #[error("Pattern error: {0}")]
+    PatternError(#[from] glob::PatternError),
+    #[error("Network error: {0}")]
+    ReqwestError(#[from] reqwest::Error),
+    #[error("JSON parse error: {0}")]
+    ParseError(#[from] serde_json::Error),
+    #[error("HTTP error: {0}")]
+    Http(u16),
+    #[error("Pool not found")]
+    PoolNotFound,
+    #[error("Couldn't get the authenticity token")]
+    AuthTokenNotFound,
+    #[error("The IQDB query failed or returned unknown results.")]
+    IqdbQueryError,
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
 
 pub enum OutputMode {
     Id,
-    Json,
     Raw,
     Verbose,
 }
@@ -40,7 +46,6 @@ impl From<&str> for OutputMode {
     fn from(s: &str) -> Self {
         match s {
             "id" => OutputMode::Id,
-            "json" => OutputMode::Json,
             "raw" => OutputMode::Raw,
             "verbose" => OutputMode::Verbose,
             _ => panic!("Invalid output mode: {}", s),
@@ -57,7 +62,7 @@ pub fn valid_parse<T: FromStr>(v: &str, emsg: &str) -> std::result::Result<(), S
 }
 
 pub fn output_mode_check(v: String) -> std::result::Result<(), String> {
-    if v == "id" || v == "json" || v == "raw" || v == "verbose" {
+    if v == "id" || v == "raw" || v == "verbose" {
         Ok(())
     } else {
         Err(String::from("Invalid output mode."))
@@ -98,36 +103,51 @@ impl From<&ArgMatches<'_>> for PostMapMode {
     }
 }
 
-pub fn post_map(
+pub async fn post_map(
     client: &Rs621Client,
     mode: PostMapMode,
-    post_iter: impl Iterator<Item = Rs621Result<Post>>,
+    mut post_stream: impl Stream<Item = Rs621Result<Post>> + Unpin,
 ) -> Result<Vec<Post>> {
     Ok(match mode {
-        PostMapMode::None => post_iter
-            .map(|r| r.map_err(|e| e.into()))
+        PostMapMode::None => post_stream
+            .map(|r| r.map_err(|e| Error::from(e)))
+            .collect::<Vec<_>>()
+            .await
+            .into_iter()
             .collect::<Result<Vec<_>>>()?,
-        PostMapMode::Parents => post_iter
-            .filter_map(|p| match p {
-                Ok(p) => p.parent_id.map(|id| client.get_post(id)),
-                Err(e) => Some(Err(e)),
+        PostMapMode::Parents => post_stream
+            .filter_map(|p| async move {
+                match p {
+                    Ok(p) => {
+                        if let Some(parent) = p.relationships.parent_id {
+                            client.get_posts(&[parent]).next().await
+                        } else {
+                            None
+                        }
+                    }
+                    Err(e) => Some(Err(e)),
+                }
             })
-            .map(|r| r.map_err(|e| e.into()))
+            .map(|r| r.map_err(|e| Error::from(e)))
+            .collect::<Vec<_>>()
+            .await
+            .into_iter()
             .collect::<Result<Vec<_>>>()?,
         PostMapMode::Children => {
             // Vec holding all the children of all the posts
             let mut all_children = Vec::new();
 
             // collect the children of every post in a Vec
-            for post in post_iter {
-                let post_children = post?
-                    .children
-                    .iter()
-                    .map(|id| client.get_post(*id).map_err(|e| e.into()))
-                    .collect::<Result<Vec<_>>>()?;
+            while let Some(post) = post_stream.next().await {
+                let post = post?;
 
-                // add it to the big Vec
-                all_children.extend(post_children);
+                all_children.reserve(post.relationships.children.len());
+
+                for child in post.relationships.children.iter() {
+                    if let Some(child_post) = client.get_posts(&[*child]).next().await {
+                        all_children.push(child_post?);
+                    }
+                }
             }
 
             all_children
@@ -138,19 +158,24 @@ pub fn post_map(
 /// Downloads the given URL to `writer`.
 ///
 /// On success, the total number of bytes that were copied from `reader` to `writer` is returned.
-pub fn download<W, U>(url: U, writer: &mut W) -> Result<u64>
+pub async fn download<W, U>(url: U, writer: &mut W) -> Result<u64>
 where
     U: reqwest::IntoUrl,
     W: ?Sized + io::Write,
 {
-    let mut res = CLIENT.get(url).send()?;
+    let mut res = CLIENT.get(url).send().await?;
 
     if res.status().is_success() {
-        Ok(res.copy_to(writer)?)
+        let mut bytes = 0;
+
+        while let Some(chunk) = res.chunk().await? {
+            writer.write_all(&chunk)?;
+            bytes += chunk.len() as u64;
+        }
+
+        Ok(bytes)
     } else {
-        Err(Error::Http {
-            code: res.status().as_u16(),
-        })
+        Err(Error::Http(res.status().as_u16()))
     }
 }
 
@@ -159,32 +184,81 @@ struct DisplayablePost<'a>(&'a Post);
 
 impl fmt::Display for DisplayablePost<'_> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        if let PostStatus::Deleted(ref reason) = &self.0.status {
-            writeln!(f, "#{} (deleted: {})", self.0.id, reason)?;
+        if self.0.flags.deleted {
+            writeln!(f, "#{} (deleted)", self.0.id)?;
         } else {
             write!(f, "#{} by ", self.0.id)?;
 
-            let artist_count = self.0.artists.len();
+            let artist_count = self.0.tags.artist.len();
             for i in 0..artist_count {
                 match artist_count - i {
-                    1 => writeln!(f, "{}", self.0.artists[i])?,
-                    2 => write!(f, "{} and ", self.0.artists[i])?,
-                    _ => write!(f, "{}, ", self.0.artists[i])?,
+                    1 => writeln!(f, "{}", self.0.tags.artist[i])?,
+                    2 => write!(f, "{} and ", self.0.tags.artist[i])?,
+                    _ => write!(f, "{}, ", self.0.tags.artist[i])?,
                 }
             }
         }
 
-        writeln!(f, "Rating: {}", self.0.rating)?;
+        writeln!(
+            f,
+            "Rating: {}",
+            match self.0.rating {
+                rs621::post::PostRating::Safe => "safe",
+                rs621::post::PostRating::Questionable => "questionable",
+                rs621::post::PostRating::Explicit => "explicit",
+            }
+        )?;
 
-        writeln!(f, "Score: {}", self.0.score)?;
+        writeln!(
+            f,
+            "Score: {} (+{}; -{})",
+            self.0.score.total, self.0.score.up, self.0.score.down
+        )?;
         writeln!(f, "Favs: {}", self.0.fav_count)?;
 
-        if let Some(ref t) = self.0.file_ext {
-            writeln!(f, "Type: {}", t)?;
-        }
+        writeln!(
+            f,
+            "Type: {}",
+            match self.0.file.ext {
+                rs621::post::PostFileExtension::Jpeg => "JPEG",
+                rs621::post::PostFileExtension::Png => "PNG",
+                rs621::post::PostFileExtension::Gif => "GIF",
+                rs621::post::PostFileExtension::Swf => "SWF",
+                rs621::post::PostFileExtension::WebM => "WEBM",
+            }
+        )?;
 
         writeln!(f, "Created at: {}", self.0.created_at)?;
-        writeln!(f, "Tags: {}", self.0.tags.join(", "))?;
+        writeln!(f, "Tags:")?;
+
+        if !self.0.tags.artist.is_empty() {
+            writeln!(f, "  [artist] {}", self.0.tags.artist.join(", "))?;
+        }
+
+        if !self.0.tags.lore.is_empty() {
+            writeln!(f, "  [lore] {}", self.0.tags.lore.join(", "))?;
+        }
+
+        if !self.0.tags.character.is_empty() {
+            writeln!(f, "  [character] {}", self.0.tags.character.join(", "))?;
+        }
+
+        if !self.0.tags.species.is_empty() {
+            writeln!(f, "  [species] {}", self.0.tags.species.join(", "))?;
+        }
+
+        if !self.0.tags.general.is_empty() {
+            writeln!(f, "  [general] {}", self.0.tags.general.join(", "))?;
+        }
+
+        if !self.0.tags.meta.is_empty() {
+            writeln!(f, "  [meta] {}", self.0.tags.meta.join(", "))?;
+        }
+
+        if !self.0.tags.invalid.is_empty() {
+            writeln!(f, "  [invalid] {}", self.0.tags.invalid.join(", "))?;
+        }
+
         write!(f, "Description: {}", self.0.description)?;
 
         Ok(())
@@ -192,7 +266,8 @@ impl fmt::Display for DisplayablePost<'_> {
 }
 
 // output the posts
-pub fn output_posts(posts: &Vec<Post>, mode: OutputMode) -> Result<()> {
+// TODO change posts to a stream
+pub async fn output_posts(posts: &Vec<Post>, mode: OutputMode) -> Result<()> {
     match mode {
         OutputMode::Id => {
             posts.iter().for_each(|p| println!("{}", p.id));
@@ -200,24 +275,11 @@ pub fn output_posts(posts: &Vec<Post>, mode: OutputMode) -> Result<()> {
             Ok(())
         }
 
-        OutputMode::Json => {
-            println!(
-                "[{}]",
-                posts
-                    .iter()
-                    .map(|p| p.raw.clone())
-                    .collect::<Vec<_>>()
-                    .join(",")
-            );
-
-            Ok(())
-        }
-
         OutputMode::Raw => {
             let mut stdout = io::stdout();
 
-            for p in posts.iter().filter(|p| !p.is_deleted()) {
-                download(p.file_url.as_ref().unwrap(), &mut stdout)?;
+            for url in posts.iter().filter_map(|p| p.file.url.as_ref()) {
+                download(url, &mut stdout).await?;
             }
 
             Ok(())
@@ -243,21 +305,32 @@ pub fn output_posts(posts: &Vec<Post>, mode: OutputMode) -> Result<()> {
 }
 
 // save the posts
-pub fn save_posts(posts: &Vec<Post>, pool_id: Option<u64>) -> Result<()> {
-    for (i, p) in posts.iter().filter(|p| !p.is_deleted()).enumerate() {
-        let mut file = if let Some(id) = pool_id {
-            File::create(format!(
-                "{}-{}_{}.{}",
-                id,
-                i + 1,
+pub async fn save_posts(posts: &[Post], pool_id: Option<u64>) -> Result<()> {
+    for (i, (id, url, ext)) in posts
+        .iter()
+        .filter(|p| p.file.url.is_some())
+        .map(|p| {
+            (
                 p.id,
-                p.file_ext.as_ref().unwrap()
-            ))?
+                p.file.url.as_ref().unwrap(),
+                match p.file.ext {
+                    rs621::post::PostFileExtension::Jpeg => "jpg",
+                    rs621::post::PostFileExtension::Png => "png",
+                    rs621::post::PostFileExtension::Gif => "gif",
+                    rs621::post::PostFileExtension::Swf => "swf",
+                    rs621::post::PostFileExtension::WebM => "webm",
+                },
+            )
+        })
+        .enumerate()
+    {
+        let mut file = if let Some(id) = pool_id {
+            File::create(format!("{}-{}_{}.{}", id, i + 1, id, ext))?
         } else {
-            File::create(format!("{}.{}", p.id, p.file_ext.as_ref().unwrap()))?
+            File::create(format!("{}.{}", id, ext))?
         };
 
-        download(p.file_url.as_ref().unwrap(), &mut file)?;
+        download(url, &mut file).await?;
     }
 
     Ok(())

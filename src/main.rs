@@ -6,15 +6,16 @@ mod reverse;
 use clap::{crate_version, App, ArgMatches};
 
 // runs the program
-fn run(matches: &ArgMatches) -> common::Result<()> {
+async fn run(matches: &ArgMatches<'_>) -> common::Result<()> {
     match matches.subcommand() {
-        ("pool", Some(sub_matches)) => pool::run(sub_matches),
-        ("reverse", Some(sub_matches)) => reverse::run(sub_matches),
-        _ => normal::run(matches),
+        ("pool", Some(sub_matches)) => pool::run(sub_matches).await,
+        ("reverse", Some(sub_matches)) => reverse::run(sub_matches).await,
+        _ => normal::run(matches).await,
     }
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     // CLI Arguments parsing
     let matches = App::new("get621")
         .version(&crate_version!()[..])
@@ -26,7 +27,7 @@ fn main() {
         .subcommand(reverse::subcommand())
         .get_matches();
 
-    ::std::process::exit(match run(&matches) {
+    ::std::process::exit(match run(&matches).await {
         Ok(_) => 0,
         Err(e) => {
             eprintln!("{}", e);

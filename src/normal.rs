@@ -1,9 +1,15 @@
 use crate::common::{self, output_mode_check, output_posts, post_map, save_posts, valid_parse};
 use clap::{crate_version, Arg, ArgMatches};
+use futures::StreamExt;
 use rs621::client::Client;
 
 pub fn args<'a, 'b>() -> Vec<Arg<'a, 'b>> {
     vec![
+        Arg::with_name("url")
+            .short("u")
+            .long("url")
+            .default_value("https://e926.net")
+            .help("The URL of the server where requests should be made."),
         Arg::with_name("children")
             .short("c")
             .long("children")
@@ -31,7 +37,7 @@ pub fn args<'a, 'b>() -> Vec<Arg<'a, 'b>> {
             .takes_value(true)
             .default_value("verbose")
             .validator(output_mode_check)
-            .help("Set output mode; one of: id, json, raw, verbose"),
+            .help("Set output mode; one of: id, raw, verbose"),
         Arg::with_name("tags")
             .index(1)
             .multiple(true)
@@ -41,11 +47,14 @@ pub fn args<'a, 'b>() -> Vec<Arg<'a, 'b>> {
 }
 
 // get621 ...
-pub fn run(matches: &ArgMatches) -> common::Result<()> {
+pub async fn run(matches: &ArgMatches<'_>) -> common::Result<()> {
     let limit: u64 = matches.value_of("limit").unwrap().parse().unwrap();
 
     // Create client
-    let client = Client::new(&format!("get621/{} (by nasso on e621)", crate_version!()))?;
+    let client = Client::new(
+        matches.value_of("url").unwrap(),
+        &format!("get621/{} (by nasso on e621)", crate_version!()),
+    )?;
 
     // search tags
     let tags = matches
@@ -53,16 +62,16 @@ pub fn run(matches: &ArgMatches) -> common::Result<()> {
         .map_or_else(|| Vec::new(), |v| v.collect::<Vec<_>>());
 
     // Request
-    let post_iter = client.post_search(&tags[..]).take(limit as usize);
+    let post_stream = client.post_search(&tags[..]).take(limit as usize);
 
     // Get the posts
-    let posts = post_map(&client, matches.into(), post_iter)?;
+    let posts = post_map(&client, matches.into(), post_stream).await?;
 
     // Do whatever the user asked us to do
-    output_posts(&posts, matches.value_of("output_mode").unwrap().into())?;
+    output_posts(&posts, matches.value_of("output_mode").unwrap().into()).await?;
 
     if matches.is_present("save") {
-        save_posts(&posts, None)?;
+        save_posts(&posts, None).await?;
     }
 
     Ok(())
