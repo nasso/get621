@@ -1,20 +1,13 @@
 use crate::common::{
-    self, output_mode_check, output_posts, post_map, save_posts, valid_parse, Error,
+    self, output_mode_check, output_posts, post_map, save_post, valid_parse, Error,
 };
 use clap::{crate_version, App, Arg, ArgMatches, SubCommand};
-use futures::StreamExt;
+use futures::{pin_mut, stream, StreamExt};
 use rs621::{client::Client, pool::PoolSearch};
 
 pub fn subcommand<'a, 'b>() -> App<'a, 'b> {
     SubCommand::with_name("pool")
         .about("Pool related commands")
-        .arg(
-            Arg::with_name("url")
-                .short("u")
-                .long("url")
-                .default_value("https://e926.net")
-                .help("The URL of the server where requests should be made."),
-        )
         .arg(
             Arg::with_name("children")
                 .short("c")
@@ -53,36 +46,41 @@ pub fn subcommand<'a, 'b>() -> App<'a, 'b> {
         )
 }
 
-pub async fn run(matches: &ArgMatches<'_>) -> common::Result<()> {
-    let id: u64 = matches.value_of("id").unwrap().parse().unwrap();
+pub async fn run(url: &str, matches: &ArgMatches<'_>) -> common::Result<()> {
+    let pool_id: u64 = matches.value_of("id").unwrap().parse().unwrap();
+    let flag_save = matches.is_present("save");
 
     // Create client
     let client = Client::new(
-        matches.value_of("url").unwrap(),
+        url,
         &format!("get621/{} (by nasso on e621)", crate_version!()),
     )?;
 
     // Get the posts
-    let posts = post_map(
-        &client,
-        matches.into(),
-        client.get_posts(
-            &client
-                .pool_search(PoolSearch::new().id(vec![id]))
-                .next()
-                .await
-                .ok_or(Error::PoolNotFound)??
-                .post_ids,
-        ),
-    )
-    .await?;
+    let post_ids = client
+        .pool_search(PoolSearch::new().id(vec![pool_id]))
+        .next()
+        .await
+        .ok_or(Error::PoolNotFound)??
+        .post_ids;
+    let posts = client.get_posts(&post_ids);
+
+    let posts = post_map(&client, matches.into(), posts).await?;
+    let post_stream = stream::iter(posts)
+        .enumerate()
+        .then(|(i, post)| async move {
+            if flag_save {
+                if let Err(e) = save_post(&post, &format!("{}-{}_", pool_id, i)[..]).await {
+                    eprintln!("Error when saving #{}: {}", post.id, e);
+                }
+            }
+
+            post
+        });
+    pin_mut!(post_stream);
 
     // Do whatever the user asked us to do
-    output_posts(&posts, matches.value_of("output_mode").unwrap().into()).await?;
-
-    if matches.is_present("save") {
-        save_posts(&posts, None).await?;
-    }
+    output_posts(post_stream, matches.value_of("output_mode").unwrap().into()).await?;
 
     Ok(())
 }

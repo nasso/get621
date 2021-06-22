@@ -1,9 +1,9 @@
 use crate::common::{
-    self, download, expand_paths, output_mode_check, output_posts, save_posts, valid_parse, Error,
+    self, download, expand_paths, output_mode_check, output_posts, save_post, valid_parse, Error,
     OutputMode, Result,
 };
 use clap::{crate_version, App, Arg, ArgMatches, SubCommand};
-use futures::StreamExt;
+use futures::{pin_mut, StreamExt};
 use lazy_static::lazy_static;
 use regex::Regex;
 use reqwest::{
@@ -19,13 +19,6 @@ use std::{fs::File, io::Read, path::Path};
 pub fn subcommand<'a, 'b>() -> App<'a, 'b> {
     SubCommand::with_name("reverse")
         .about("Similar image search (experimental)")
-        .arg(
-            Arg::with_name("url")
-                .short("u")
-                .long("url")
-                .default_value("https://e926.net")
-                .help("The URL of the server where requests should be made."),
-        )
         .arg(
             Arg::with_name("source")
                 .index(1)
@@ -212,8 +205,7 @@ async fn reverse_search(
 }
 
 // get621 reverse ...
-pub async fn run(matches: &ArgMatches<'_>) -> Result<()> {
-    let url = matches.value_of("url").unwrap();
+pub async fn run(url: &str, matches: &ArgMatches<'_>) -> Result<()> {
     let arg_source = matches.values_of("source").unwrap().collect::<Vec<_>>();
     let arg_similarity = matches.value_of("similarity").unwrap().parse().unwrap();
     let arg_outputmode = matches.value_of("output_mode").unwrap();
@@ -254,21 +246,32 @@ pub async fn run(matches: &ArgMatches<'_>) -> Result<()> {
             verbose_println!("No result.");
         } else if let Some(ref client) = client {
             // just get post information
+            let post_ids = results.into_iter().map(|r| r.id).collect::<Vec<_>>();
             let posts = client
-                .get_posts(&results.into_iter().map(|r| r.id).collect::<Vec<_>>())
+                .get_posts(&post_ids)
                 .map(|r| r.map_err(Error::from))
-                .collect::<Vec<_>>()
-                .await
-                .into_iter()
-                .collect::<Result<Vec<_>>>()?;
+                .filter_map(|res| async move {
+                    match res {
+                        Ok(post) => Some(post),
+                        Err(e) => {
+                            eprintln!("{}", e);
+                            None
+                        }
+                    }
+                })
+                .then(|post| async move {
+                    if flag_save {
+                        if let Err(e) = save_post(&post, None).await {
+                            eprintln!("Error when saving #{}: {}", post.id, e);
+                        }
+                    }
+
+                    post
+                });
+            pin_mut!(posts);
 
             // output all the posts as usual
-            output_posts(&posts, arg_outputmode.into()).await?;
-
-            // maybe save them
-            if flag_save {
-                save_posts(&posts, None).await?;
-            }
+            output_posts(posts, arg_outputmode.into()).await?;
         } else {
             // no client = directly download the image
             for result in results.into_iter() {

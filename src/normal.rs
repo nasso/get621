@@ -1,6 +1,6 @@
-use crate::common::{self, output_mode_check, output_posts, post_map, save_posts, valid_parse};
+use crate::common::{self, output_mode_check, output_posts, post_map, save_post, valid_parse};
 use clap::{crate_version, Arg, ArgMatches};
-use futures::StreamExt;
+use futures::{pin_mut, stream, StreamExt};
 use rs621::client::Client;
 
 pub fn args<'a, 'b>() -> Vec<Arg<'a, 'b>> {
@@ -9,7 +9,7 @@ pub fn args<'a, 'b>() -> Vec<Arg<'a, 'b>> {
             .short("u")
             .long("url")
             .default_value("https://e926.net")
-            .help("The URL of the server where requests should be made."),
+            .help("The URL of the server where requests should be made"),
         Arg::with_name("children")
             .short("c")
             .long("children")
@@ -49,6 +49,7 @@ pub fn args<'a, 'b>() -> Vec<Arg<'a, 'b>> {
 // get621 ...
 pub async fn run(matches: &ArgMatches<'_>) -> common::Result<()> {
     let limit: u64 = matches.value_of("limit").unwrap().parse().unwrap();
+    let flag_save = matches.is_present("save");
 
     // Create client
     let client = Client::new(
@@ -66,13 +67,21 @@ pub async fn run(matches: &ArgMatches<'_>) -> common::Result<()> {
 
     // Get the posts
     let posts = post_map(&client, matches.into(), post_stream).await?;
+    let post_stream = stream::iter(posts).then(|post| async move {
+        if flag_save {
+            if let Err(e) = save_post(&post, None).await {
+                eprintln!("Error when saving #{}: {}", post.id, e);
+            }
+        }
+
+        post
+    });
+    pin_mut!(post_stream);
 
     // Do whatever the user asked us to do
-    output_posts(&posts, matches.value_of("output_mode").unwrap().into()).await?;
+    let output_mode = matches.value_of("output_mode").unwrap().into();
 
-    if matches.is_present("save") {
-        save_posts(&posts, None).await?;
-    }
+    output_posts(post_stream, output_mode).await?;
 
     Ok(())
 }

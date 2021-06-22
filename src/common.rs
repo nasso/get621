@@ -1,5 +1,5 @@
 use clap::ArgMatches;
-use futures::{stream::StreamExt, Stream};
+use futures::{pin_mut, stream::StreamExt, Stream};
 use glob;
 use lazy_static::lazy_static;
 use reqwest;
@@ -34,8 +34,10 @@ pub enum Error {
     PoolNotFound,
     #[error("Couldn't get the authenticity token")]
     AuthTokenNotFound,
-    #[error("The IQDB query failed or returned unknown results.")]
+    #[error("The IQDB query failed or returned unknown results")]
     IqdbQueryError,
+    #[error("A post is missing a file URL")]
+    MissingFileUrl,
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -237,32 +239,34 @@ impl fmt::Display for DisplayablePost<'_> {
         writeln!(f, "Created at: {}", self.0.created_at)?;
         writeln!(f, "Tags:")?;
 
+        // TODO smartly wrap tags according to the terminal width?
+
         if !self.0.tags.artist.is_empty() {
-            writeln!(f, "  [artist] {}", self.0.tags.artist.join(", "))?;
+            writeln!(f, "  [artist]\n    {}", self.0.tags.artist.join(" "))?;
         }
 
         if !self.0.tags.lore.is_empty() {
-            writeln!(f, "  [lore] {}", self.0.tags.lore.join(", "))?;
+            writeln!(f, "  [lore]\n    {}", self.0.tags.lore.join(" "))?;
         }
 
         if !self.0.tags.character.is_empty() {
-            writeln!(f, "  [character] {}", self.0.tags.character.join(", "))?;
+            writeln!(f, "  [character]\n    {}", self.0.tags.character.join(" "))?;
         }
 
         if !self.0.tags.species.is_empty() {
-            writeln!(f, "  [species] {}", self.0.tags.species.join(", "))?;
+            writeln!(f, "  [species]\n    {}", self.0.tags.species.join(" "))?;
         }
 
         if !self.0.tags.general.is_empty() {
-            writeln!(f, "  [general] {}", self.0.tags.general.join(", "))?;
+            writeln!(f, "  [general]\n    {}", self.0.tags.general.join(" "))?;
         }
 
         if !self.0.tags.meta.is_empty() {
-            writeln!(f, "  [meta] {}", self.0.tags.meta.join(", "))?;
+            writeln!(f, "  [meta]\n    {}", self.0.tags.meta.join(" "))?;
         }
 
         if !self.0.tags.invalid.is_empty() {
-            writeln!(f, "  [invalid] {}", self.0.tags.invalid.join(", "))?;
+            writeln!(f, "  [invalid]\n    {}", self.0.tags.invalid.join(" "))?;
         }
 
         write!(f, "Description: {}", self.0.description)?;
@@ -272,37 +276,47 @@ impl fmt::Display for DisplayablePost<'_> {
 }
 
 // output the posts
-// TODO change posts to a stream
-pub async fn output_posts(posts: &Vec<Post>, mode: OutputMode) -> Result<()> {
+pub async fn output_posts(
+    mut posts: impl Stream<Item = Post> + Unpin,
+    mode: OutputMode,
+) -> Result<()> {
     match mode {
         OutputMode::Id => {
-            posts.iter().for_each(|p| println!("{}", p.id));
+            while let Some(post) = posts.next().await {
+                println!("{}", post.id);
+            }
 
             Ok(())
         }
 
         OutputMode::Raw => {
-            let mut stdout = io::stdout();
+            let results = posts
+                .filter_map(|p| async move { p.file.url })
+                .then(|url| async move { download(url, &mut io::stdout()).await });
 
-            for url in posts.iter().filter_map(|p| p.file.url.as_ref()) {
-                download(url, &mut stdout).await?;
+            pin_mut!(results);
+
+            while let Some(res) = results.next().await {
+                res?;
             }
 
             Ok(())
         }
 
         OutputMode::Verbose => {
-            if posts.is_empty() {
+            let mut is_empty = true;
+
+            while let Some(post) = posts.next().await {
+                if !is_empty {
+                    println!("----------------");
+                }
+
+                is_empty = false;
+                println!("{}", DisplayablePost(&post));
+            }
+
+            if is_empty {
                 println!("No post found.");
-            } else {
-                println!(
-                    "{}",
-                    posts
-                        .iter()
-                        .map(|p| DisplayablePost(p).to_string())
-                        .collect::<Vec<_>>()
-                        .join("\n----------------\n")
-                );
             }
 
             Ok(())
@@ -311,33 +325,24 @@ pub async fn output_posts(posts: &Vec<Post>, mode: OutputMode) -> Result<()> {
 }
 
 // save the posts
-pub async fn save_posts(posts: &[Post], pool_id: Option<u64>) -> Result<()> {
-    for (i, (id, url, ext)) in posts
-        .iter()
-        .filter(|p| p.file.url.is_some())
-        .map(|p| {
-            (
-                p.id,
-                p.file.url.as_ref().unwrap(),
-                match p.file.ext {
-                    PostFileExtension::Jpeg => "jpg",
-                    PostFileExtension::Png => "png",
-                    PostFileExtension::Gif => "gif",
-                    PostFileExtension::Swf => "swf",
-                    PostFileExtension::WebM => "webm",
-                },
-            )
-        })
-        .enumerate()
-    {
-        let mut file = if let Some(id) = pool_id {
-            File::create(format!("{}-{}_{}.{}", id, i + 1, id, ext))?
-        } else {
-            File::create(format!("{}.{}", id, ext))?
-        };
+pub async fn save_post(post: &Post, prefix: impl Into<Option<&str>>) -> Result<()> {
+    let id = post.id;
+    let url = post.file.url.as_ref().ok_or(Error::MissingFileUrl)?;
 
-        download(url, &mut file).await?;
-    }
+    let mut file = File::create(format!(
+        "{}{}.{}",
+        prefix.into().unwrap_or(""),
+        id,
+        match post.file.ext {
+            PostFileExtension::Jpeg => "jpg",
+            PostFileExtension::Png => "png",
+            PostFileExtension::Gif => "gif",
+            PostFileExtension::Swf => "swf",
+            PostFileExtension::WebM => "webm",
+        }
+    ))?;
+
+    download(url, &mut file).await?;
 
     Ok(())
 }

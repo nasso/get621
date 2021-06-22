@@ -8,8 +8,12 @@ use clap::{crate_version, App, ArgMatches};
 // runs the program
 async fn run(matches: &ArgMatches<'_>) -> common::Result<()> {
     match matches.subcommand() {
-        ("pool", Some(sub_matches)) => pool::run(sub_matches).await,
-        ("reverse", Some(sub_matches)) => reverse::run(sub_matches).await,
+        ("pool", Some(sub_matches)) => {
+            pool::run(matches.value_of("url").unwrap(), sub_matches).await
+        }
+        ("reverse", Some(sub_matches)) => {
+            reverse::run(matches.value_of("url").unwrap(), sub_matches).await
+        }
         _ => normal::run(matches).await,
     }
 }
