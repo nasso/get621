@@ -13,7 +13,7 @@ use reqwest::{
 use rs621::client::Client;
 use scraper::{Html, Selector};
 use serde::Deserialize;
-use std::{fs::File, io::Read, path::Path};
+use std::{fs::File, io::Read, path::Path, time::Duration};
 
 // arguments of the subcommand
 pub fn subcommand<'a, 'b>() -> App<'a, 'b> {
@@ -138,6 +138,8 @@ async fn reverse_search(
             }
         });
 
+    std::thread::sleep(Duration::from_millis(600));
+
     let mut json: serde_json::Value = common::CLIENT
         .post(format!("{}/iqdb_queries.json", url))
         .header(
@@ -168,40 +170,6 @@ async fn reverse_search(
     }
 
     Ok(results)
-    /*
-    let doc = Html::parse_document(&doc);
-
-    Ok(doc
-        // for each result
-        .select(&SELECT_RESULTS)
-        // filter out posts below threshold
-        .filter(|elem| {
-            match POST_SIMILARITY_REGEX
-                .captures(&elem.inner_html())
-                .and_then(|caps| caps.get(1))
-                .and_then(|cap| cap.as_str().parse::<f64>().ok())
-            {
-                Some(val) => val >= min_similarity,
-                None => false,
-            }
-        })
-        // get the e621 link
-        .map(|elem| {
-            (
-                elem.value().attr("data-id"),
-                elem.value().attr("data-file-ext"),
-                elem.value().attr("data-file-url"),
-            )
-        })
-        // retrieve posts
-        .filter(|(id, _, _)| id.is_some())
-        .map(|(id, ext, url)| ReverseSearchResult {
-            id: id.unwrap().parse::<u64>().unwrap(),
-            file_ext: ext.unwrap().into(),
-            file_url: url.map(String::from),
-        })
-        .collect())
-    */
 }
 
 // get621 reverse ...
