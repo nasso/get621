@@ -65,8 +65,8 @@ pub fn subcommand<'a, 'b>() -> App<'a, 'b> {
 #[derive(Deserialize)]
 struct ReverseSearchResult {
     id: u64,
-    file_ext: String,
-    file_url: String,
+    file_ext: Option<String>,
+    file_url: Option<String>,
 }
 
 async fn get_csrf_token(page_url: &str) -> Result<(String, String)> {
@@ -138,7 +138,7 @@ async fn reverse_search(
             }
         });
 
-    std::thread::sleep(Duration::from_millis(600));
+    std::thread::sleep(Duration::from_secs(2));
 
     let mut json: serde_json::Value = common::CLIENT
         .post(format!("{}/iqdb_queries.json", url))
@@ -153,19 +153,23 @@ async fn reverse_search(
         .json()
         .await?;
 
+    let pretty_json = serde_json::to_string_pretty(&json)?;
+
     let mut results = Vec::new();
 
-    for candidate in json
-        .as_array_mut()
-        .ok_or(Error::IqdbQueryError)?
-        .into_iter()
-    {
-        if let Some(similarity) = candidate["score"].as_f64() {
-            if similarity >= min_similarity {
-                results.push(serde_json::from_value(candidate["post"]["posts"].take())?);
+    if json["posts"].as_array().map(Vec::is_empty) != Some(true) {
+        for candidate in json
+            .as_array_mut()
+            .ok_or(Error::IqdbResponseParseError(pretty_json.clone()))?
+            .into_iter()
+        {
+            if let Some(similarity) = candidate["score"].as_f64() {
+                if similarity >= min_similarity {
+                    results.push(serde_json::from_value(candidate["post"]["posts"].take())?);
+                }
+            } else {
+                return Err(Error::IqdbResponseParseError(pretty_json));
             }
-        } else {
-            return Err(Error::IqdbQueryError);
         }
     }
 
@@ -243,12 +247,21 @@ pub async fn run(url: &str, matches: &ArgMatches<'_>) -> Result<()> {
         } else {
             // no client = directly download the image
             for result in results.into_iter() {
-                verbose_println!("Downloading {}...", result.file_url);
+                if let (id, Some(file_url), Some(file_ext)) =
+                    (result.id, result.file_url, result.file_ext)
+                {
+                    verbose_println!("Downloading {}...", file_url);
 
-                let dest_path = format!("{}.{}", result.id, result.file_ext);
-                let mut dest = File::create(&dest_path)?;
+                    let dest_path = format!("{}.{}", id, file_ext);
+                    let mut dest = File::create(&dest_path)?;
 
-                download(result.file_url, &mut dest).await?;
+                    download(file_url, &mut dest).await?;
+                } else {
+                    verbose_println!(
+                        "Found #{} but the file URL is missing. The post was probably deleted.",
+                        result.id
+                    )
+                }
             }
         }
 

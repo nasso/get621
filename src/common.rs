@@ -34,8 +34,8 @@ pub enum Error {
     PoolNotFound,
     #[error("Couldn't get the authenticity token")]
     AuthTokenNotFound,
-    #[error("The IQDB query failed or returned unknown results")]
-    IqdbQueryError,
+    #[error("The IQDB query response couldn't be interpreted: {0}")]
+    IqdbResponseParseError(String),
     #[error("A post is missing a file URL")]
     MissingFileUrl,
 }
